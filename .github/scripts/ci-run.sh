@@ -33,21 +33,29 @@ if [ "$status" -ne 0 ]; then
         echo '```'
     } >> "${GITHUB_STEP_SUMMARY:-/dev/null}" 2>/dev/null || true
 
-    # What actually went wrong, from anywhere in the log - not just the tail,
-    # which for a long build is usually unrelated output. The "-A 6" matters:
-    # CMake prints the reason on the lines after "CMake Error", and every
-    # feature probe in this build prints the word "not found" as routine noise.
-    # grep returns 1 when nothing matches, which must not abort this script.
-    highlights="$(grep -a -A 8 -E 'CMake Error' "$log" 2>/dev/null | head -300)" || true
-    if [ -z "$highlights" ]; then
-        highlights="$(grep -a -E 'fatal error:|error: |undefined reference|FAILURE:|What went wrong|Caused by:|Execution failed|BUILD FAILED|e: ' "$log" 2>/dev/null | head -40)" || true
-    fi
-    tail_lines="$(tail -n 25 "$log" 2>/dev/null)" || true
+    # Report the first handful of problems one annotation each: a single blob
+    # is unreadable, and "note:" lines would drown out the actual errors.
+    # ': error: ' cannot match 'note: ' the way a bare 'e: ' does.
+    errlist="$(mktemp)"
+    grep -a -n -E ': (fatal )?error: |^ninja: error|undefined reference to|FAILURE: Build failed|Execution failed for task' "$log" 2>/dev/null \
+        | grep -v -F 'note: ' > "$errlist" || true
 
-    message="$(printf '%s\n%s\n' "$highlights" "$tail_lines" \
-        | sed -e 's/%/%25/g' -e 's/\r//g' \
-        | awk 'NF { printf "%s%%0A", $0 }')"
-    printf '::error::%s\n' "${message:0:8000}"
+    reported=0
+    while IFS=: read -r lineno rest; do
+        [ -z "${lineno:-}" ] && continue
+        [ "$reported" -ge 8 ] && break
+        snippet="$(sed -n "${lineno},$((lineno + 4))p" "$log" 2>/dev/null)"
+        msg="$(printf '%s' "$snippet" | sed -e 's/%/%25/g' -e 's/\r//g' | awk 'NF { printf "%s%%0A", $0 }')"
+        printf '::error::%s\n' "${msg:0:1800}"
+        reported=$((reported + 1))
+    done < "$errlist"
+
+    if [ "$reported" -eq 0 ]; then
+        tail_lines="$(tail -n 15 "$log" 2>/dev/null)" || true
+        msg="$(printf '%s' "$tail_lines" | sed -e 's/%/%25/g' -e 's/\r//g' | awk 'NF { printf "%s%%0A", $0 }')"
+        printf '::error::no error lines matched, last output: %s\n' "${msg:0:3000}"
+    fi
+    rm -f "$errlist"
 fi
 
 exit "$status"
