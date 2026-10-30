@@ -37,14 +37,12 @@ if [ "$status" -ne 0 ]; then
     # which for a long build is usually unrelated output. The "-A 6" matters:
     # CMake prints the reason on the lines after "CMake Error", and every
     # feature probe in this build prints the word "not found" as routine noise.
-    highlights="$(grep -a -A 6 -E 'CMake Error' "$log" 2>/dev/null | head -300)"
+    # grep returns 1 when nothing matches, which must not abort this script.
+    highlights="$(grep -a -A 8 -E 'CMake Error' "$log" 2>/dev/null | head -300)" || true
     if [ -z "$highlights" ]; then
-        highlights="$(grep -a -E 'fatal error:|error: |undefined reference|Error:|Traceback|CMakeFiles/.*\.o' "$log" 2>/dev/null | head -40)"
+        highlights="$(grep -a -E 'fatal error:|error: |undefined reference|FAILURE:|What went wrong|Caused by:|Execution failed|BUILD FAILED|e: ' "$log" 2>/dev/null | head -40)" || true
     fi
-    if [ -z "$highlights" ]; then
-        highlights="$(tail -n 40 "$log" 2>/dev/null)"
-    fi
-    tail_lines="$(tail -n 8 "$log" 2>/dev/null)"
+    tail_lines="$(tail -n 25 "$log" 2>/dev/null)" || true
 
     message="$(printf '%s\n%s\n' "$highlights" "$tail_lines" \
         | sed -e 's/%/%25/g' -e 's/\r//g' \
