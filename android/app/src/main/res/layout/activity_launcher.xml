@@ -194,6 +194,24 @@
             android:text="@string/opt_touch_mouse_hint"
             android:textSize="12sp" />
 
+        <!-- Audio -->
+
+        <TextView
+            style="@style/SectionHeader"
+            android:text="@string/section_audio" />
+
+        <CheckBox
+            android:id="@+id/chk_sound"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/opt_sound" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/opt_sound_hint"
+            android:textSize="12sp" />
+
         <!-- Data -->
 
         <TextView

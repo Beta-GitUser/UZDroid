@@ -59,8 +59,8 @@ public class GameActivity extends SDLActivity {
             args = new String[0];
         }
 
-        Log.i(TAG, "Engine root: " + root.getAbsolutePath());
-        Log.i(TAG, "Engine arguments: " + java.util.Arrays.toString(args));
+        CrashLog.append(this, "engine starting in " + root.getAbsolutePath());
+        CrashLog.append(this, "arguments: " + java.util.Arrays.toString(args));
 
         return args;
     }

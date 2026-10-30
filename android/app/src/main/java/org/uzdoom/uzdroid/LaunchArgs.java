@@ -32,6 +32,10 @@ public final class LaunchArgs {
 
         addResolution(args, prefs, screenWidth, screenHeight);
 
+        if (!prefs.soundEnabled) {
+            args.add("-nosound");
+        }
+
         if (!prefs.joystickEnabled) {
             // Applies before the joystick subsystem is set up, because the
             // engine runs command line cvars long before video init.

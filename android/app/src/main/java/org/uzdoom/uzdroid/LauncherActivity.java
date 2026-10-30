@@ -72,13 +72,25 @@ public class LauncherActivity extends AppCompatActivity {
     private EditText etArgs;
     private Button btnAddFile;
 
+    /** Set when the engine is started, so an immediate return can be reported. */
+    private long launchedAt = 0;
+    private long logSizeAtLaunch = 0;
+
     private CheckBox chkJoystick;
     private CheckBox chkTouchMouse;
+    private CheckBox chkSound;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // Before anything else: if layout inflation or the settings blow up, we
+        // want a stack trace on disk rather than a window that closes.
+        CrashLog.install(this);
+        CrashLog.append(this, "launcher started");
+
         setContentView(R.layout.activity_launcher);
+        CrashLog.append(this, "layout inflated");
 
         prefs = LauncherPrefs.load(this);
 
@@ -100,6 +112,7 @@ public class LauncherActivity extends AppCompatActivity {
 
         chkJoystick = findViewById(R.id.chk_joystick);
         chkTouchMouse = findViewById(R.id.chk_touch_mouse);
+        chkSound = findViewById(R.id.chk_sound);
 
         setupListeners();
         restoreControls();
@@ -112,6 +125,37 @@ public class LauncherActivity extends AppCompatActivity {
         // leave the launcher in a usable state.
         setBusy(false);
         refresh();
+        reportImmediateExit();
+    }
+
+    /**
+     * A start-up crash used to look like "the app just closed". If the engine
+     * came back within a few seconds and did not add a single line to its log,
+     * say so instead of leaving the user guessing.
+     */
+    private void reportImmediateExit() {
+        if (launchedAt == 0) {
+            return;
+        }
+
+        final long elapsed = System.currentTimeMillis() - launchedAt;
+        launchedAt = 0;
+
+        File log = new File(root, "logs/uzdoom.log");
+        long size = log.isFile() ? log.length() : 0;
+
+        if (elapsed > 10000 || size > logSizeAtLaunch) {
+            return;
+        }
+
+        CrashLog.append(this, "engine returned after " + elapsed + " ms without writing a log");
+
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.early_exit_title)
+                .setMessage(getString(R.string.early_exit_message, elapsed / 1000))
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.share_log, (dialog, which) -> shareLog())
+                .show();
     }
 
     // -----------------------------------------------------------------------
@@ -171,6 +215,11 @@ public class LauncherActivity extends AppCompatActivity {
             persist();
         });
 
+        chkSound.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            prefs.soundEnabled = isChecked;
+            persist();
+        });
+
         findViewById(R.id.btn_open_data).setOnClickListener(v -> openDataFolder());
         findViewById(R.id.btn_share_log).setOnClickListener(v -> shareLog());
         findViewById(R.id.btn_reset_config).setOnClickListener(v -> confirmResetConfig());
@@ -199,6 +248,7 @@ public class LauncherActivity extends AppCompatActivity {
 
         chkJoystick.setChecked(prefs.joystickEnabled);
         chkTouchMouse.setChecked(prefs.touchAsMouse);
+        chkSound.setChecked(prefs.soundEnabled);
 
         etArgs.setText(prefs.extraArgs);
         etArgs.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
@@ -293,6 +343,11 @@ public class LauncherActivity extends AppCompatActivity {
 
         final int[] size = screenSize();
         final String[] args = LaunchArgs.build(prefs, iwad, size[0], size[1]);
+        CrashLog.append(this, "launching: " + android.text.TextUtils.join(" ", args));
+
+        File engineLog = new File(targetRoot, "logs/uzdoom.log");
+        logSizeAtLaunch = engineLog.isFile() ? engineLog.length() : 0;
+        launchedAt = System.currentTimeMillis();
 
         new Thread(() -> {
             String error = null;
@@ -301,6 +356,9 @@ public class LauncherActivity extends AppCompatActivity {
             } catch (IOException e) {
                 error = e.getMessage();
             }
+
+            CrashLog.append(getApplicationContext(),
+                    failure == null ? "engine data ready" : "engine data failed: " + failure);
 
             final String failure = error;
             runOnUiThread(() -> {
@@ -506,24 +564,51 @@ public class LauncherActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * Shares every log and crash file there is. The interesting failure mode is
+     * "the app died and wrote nothing", so the journal and the crash dumps from
+     * the private folder are included - they exist even when the data folder is
+     * not writable.
+     */
     private void shareLog() {
-        File log = new File(root, "logs/uzdoom.log");
-        if (!log.isFile()) {
+        List<File> files = logFiles();
+        if (files.isEmpty()) {
             Toast.makeText(this, R.string.no_log, Toast.LENGTH_LONG).show();
             return;
         }
 
-        Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", log);
-        Intent intent = new Intent(Intent.ACTION_SEND);
+        List<Uri> uris = new ArrayList<>();
+        List<String> paths = new ArrayList<>();
+        for (File file : files) {
+            paths.add(file.getAbsolutePath());
+            try {
+                uris.add(FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", file));
+            } catch (IllegalArgumentException e) {
+                // Not covered by file_paths.xml - still worth reporting below.
+            }
+        }
+
+        if (uris.isEmpty()) {
+            Toast.makeText(this, TextUtils.join("\n", paths), Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        Intent intent;
+        if (uris.size() == 1) {
+            intent = new Intent(Intent.ACTION_SEND);
+            intent.putExtra(Intent.EXTRA_STREAM, uris.get(0));
+        } else {
+            intent = new Intent(Intent.ACTION_SEND_MULTIPLE);
+            intent.putExtra(Intent.EXTRA_STREAM, new ArrayList<>(uris));
+        }
         intent.setType("text/plain");
-        intent.putExtra(Intent.EXTRA_STREAM, uri);
         intent.putExtra(Intent.EXTRA_SUBJECT, "UZDroid log");
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
 
         try {
             startActivity(Intent.createChooser(intent, getString(R.string.share_log)));
         } catch (ActivityNotFoundException e) {
-            Toast.makeText(this, log.getAbsolutePath(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, TextUtils.join("\n", paths), Toast.LENGTH_LONG).show();
         }
     }
 

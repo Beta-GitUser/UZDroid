@@ -37,6 +37,9 @@ public final class LauncherPrefs {
     /** Touch is delivered to the engine as mouse motion and buttons. */
     public boolean touchAsMouse = true;
 
+    /** Sound on. Off passes -nosound, which is also the way to rule libopenal out. */
+    public boolean soundEnabled = true;
+
     public static LauncherPrefs load(Context context) {
         SharedPreferences sp = context.getSharedPreferences(FILE, Context.MODE_PRIVATE);
         LauncherPrefs prefs = new LauncherPrefs();
@@ -48,6 +51,7 @@ public final class LauncherPrefs {
         prefs.lastWad = sp.getString("lastWad", "");
         prefs.joystickEnabled = sp.getBoolean("joystickEnabled", true);
         prefs.touchAsMouse = sp.getBoolean("touchAsMouse", true);
+        prefs.soundEnabled = sp.getBoolean("soundEnabled", true);
         return prefs;
     }
 
@@ -62,6 +66,7 @@ public final class LauncherPrefs {
                 .putString("lastWad", lastWad)
                 .putBoolean("joystickEnabled", joystickEnabled)
                 .putBoolean("touchAsMouse", touchAsMouse)
+                .putBoolean("soundEnabled", soundEnabled)
                 .apply();
     }
 }

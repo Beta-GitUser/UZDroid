@@ -16,13 +16,17 @@
 
 #ifdef __ANDROID__
 
+#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <unwind.h>
 
 #include <android/log.h>
 
@@ -34,6 +38,7 @@ namespace
 
 	int    ReadPipe = -1;
 	FILE*  LogFile = nullptr;
+	int    CrashFd = -1;
 
 	void WriteLine(const char* line, size_t length)
 	{
@@ -100,6 +105,119 @@ namespace
 		free(line);
 		return nullptr;
 	}
+
+	//
+	// Crash reporting. A native crash takes the whole process with it, so the
+	// only thing that can explain it afterwards is what was written before the
+	// process died. Everything here uses write() on a raw descriptor, because
+	// stdio is not safe to touch in a signal handler.
+	//
+	void CrashWrite(const char* text)
+	{
+		if (CrashFd >= 0)
+		{
+			const size_t length = strlen(text);
+			const ssize_t written = write(CrashFd, text, length);
+			(void)written;
+		}
+		__android_log_write(ANDROID_LOG_FATAL, LOG_TAG, text);
+	}
+
+	void CrashWriteHex(const char* label, uintptr_t value)
+	{
+		char buffer[64];
+		snprintf(buffer, sizeof buffer, "%s0x%lx\n", label, (unsigned long)value);
+		CrashWrite(buffer);
+	}
+
+	_Unwind_Reason_Code CrashBacktraceFrame(_Unwind_Context* context, void* arg)
+	{
+		const int* depth = static_cast<const int*>(arg);
+		if (*depth >= 24)
+			return _URC_END_OF_STACK;
+
+		uintptr_t ip = static_cast<uintptr_t>(_Unwind_GetIP(context));
+		if (ip == 0)
+			return _URC_END_OF_STACK;
+
+		char buffer[160];
+
+		Dl_info info;
+		if (dladdr(reinterpret_cast<void*>(ip), &info) != 0 && info.dli_fname != nullptr)
+		{
+			const char* name = info.dli_sname != nullptr ? info.dli_sname : "?";
+			snprintf(buffer, sizeof buffer, "  #%d %s + 0x%lx (%s)\n", *depth++, info.dli_fname,
+				(unsigned long)(ip - reinterpret_cast<uintptr_t>(info.dli_fbase)), name);
+		}
+		else
+		{
+			snprintf(buffer, sizeof buffer, "  #%d 0x%lx\n", *depth++, (unsigned long)ip);
+		}
+
+		CrashWrite(buffer);
+		return _URC_NO_REASON;
+	}
+
+	void CrashHandler(int sig, siginfo_t* info, void* /*context*/)
+	{
+		// The header goes out first: if anything below misbehaves, the signal,
+		// the address and the fact that we got here are already on disk.
+		CrashWrite("\n*** native crash: ");
+		switch (sig)
+		{
+		case SIGSEGV: CrashWrite("SIGSEGV"); break;
+		case SIGBUS:  CrashWrite("SIGBUS"); break;
+		case SIGILL:  CrashWrite("SIGILL"); break;
+		case SIGFPE:  CrashWrite("SIGFPE"); break;
+		case SIGABRT: CrashWrite("SIGABRT"); break;
+		default:      CrashWrite("signal"); break;
+		}
+		CrashWrite(" ***\n");
+
+		if (info != nullptr)
+			CrashWriteHex("fault address ", reinterpret_cast<uintptr_t>(info->si_addr));
+
+		CrashWrite("backtrace:\n");
+		int depth = 0;
+		_Unwind_Backtrace(CrashBacktraceFrame, &depth);
+		CrashWrite("*** end of crash report ***\n");
+
+		if (CrashFd >= 0)
+		{
+			fsync(CrashFd);
+		}
+
+		// Let the system produce its own tombstone as well.
+		signal(sig, SIG_DFL);
+		raise(sig);
+	}
+
+	void InstallCrashHandlers()
+	{
+		if (LogFile != nullptr)
+		{
+			CrashFd = dup(fileno(LogFile));
+		}
+
+		static char altstack[64 * 1024];
+		stack_t stack;
+		memset(&stack, 0, sizeof stack);
+		stack.ss_sp = altstack;
+		stack.ss_size = sizeof altstack;
+		sigaltstack(&stack, nullptr);
+
+		struct sigaction action;
+		memset(&action, 0, sizeof action);
+		action.sa_sigaction = CrashHandler;
+		action.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESETHAND;
+		sigemptyset(&action.sa_mask);
+
+		const int signals[] = { SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT };
+		for (int sig : signals)
+		{
+			sigaction(sig, &action, nullptr);
+		}
+	}
 }
 
 void I_Android_InitLogging()
@@ -149,6 +267,8 @@ void I_Android_InitLogging()
 	{
 		__android_log_print(ANDROID_LOG_WARN, LOG_TAG, "Unable to start the log thread");
 	}
+
+	InstallCrashHandlers();
 }
 
 #endif // __ANDROID__

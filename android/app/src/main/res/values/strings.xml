@@ -42,6 +42,11 @@
     <string name="opt_touch_mouse">Touch acts as a mouse</string>
     <string name="opt_touch_mouse_hint">Off: touches never turn into mouse clicks or motion, so grabbing the screen cannot move the view or the menu. You will need a real mouse or a gamepad to navigate.</string>
 
+    <!-- Audio -->
+    <string name="section_audio">Audio</string>
+    <string name="opt_sound">Sound (openal-soft)</string>
+    <string name="opt_sound_hint">Off starts the engine with -nosound. If the app dies on start-up, turning this off is the quickest way to tell whether the audio library is involved.</string>
+
     <!-- Data -->
     <string name="section_data">Data</string>
     <string name="open_data">Open data folder</string>
@@ -52,6 +57,8 @@
     <string name="reset_config_done">Configuration deleted.</string>
 
     <!-- Errors -->
+    <string name="early_exit_title">The engine did not start</string>
+    <string name="early_exit_message">It returned after %1$d seconds without writing anything to its log, which usually means it crashed during start-up. The log folder and the crash journal are worth sharing.</string>
     <string name="error_title">UZDroid</string>
     <string name="error_assets">Could not unpack the engine data:\n\n%1$s</string>
     <string name="error_launch">Could not start the engine:\n\n%1$s</string>
