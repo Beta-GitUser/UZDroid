@@ -142,11 +142,6 @@ jobs:
       - name: Fetch SDL2
         run: .github/scripts/ci-run.sh "$GITHUB_WORKSPACE/sdl.log" ./android/scripts/fetch-deps.sh
 
-      - name: Build engine data (PK3s)
-        env:
-          UZDROID_CCACHE: '0'
-        run: .github/scripts/ci-run.sh "$GITHUB_WORKSPACE/pk3.log" ./android/scripts/build-host-assets.sh
-
       - name: Restore ccache
         uses: actions/cache@v4
         with:
@@ -154,6 +149,11 @@ jobs:
           key: ccache-${{ github.sha }}
           restore-keys: |
             ccache-
+
+      - name: Build engine data (PK3s)
+        env:
+          UZDROID_CCACHE: '0'
+        run: .github/scripts/ci-run.sh "$GITHUB_WORKSPACE/pk3.log" ./android/scripts/build-host-assets.sh
 
       # The engine is ~1500 translation units. A configure on its own takes a
       # minute and catches build-wiring mistakes long before the build does.
@@ -169,7 +169,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DUZDOOM_SDL2_SOURCE_DIR="$GITHUB_WORKSPACE/android/deps/SDL"
           SH
-          .github/scripts/ci-run.sh "$GITHUB_WORKSPACE/configure.log" bash -x /tmp/configure.sh
+          .github/scripts/ci-run.sh "$GITHUB_WORKSPACE/configure.log" bash /tmp/configure.sh
 
       - name: Decode keystore
         if: env.KEYSTORE_BASE64 != ''

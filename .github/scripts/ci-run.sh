@@ -34,19 +34,22 @@ if [ "$status" -ne 0 ]; then
     } >> "${GITHUB_STEP_SUMMARY:-/dev/null}" 2>/dev/null || true
 
     # What actually went wrong, from anywhere in the log - not just the tail,
-    # which for a long build is usually unrelated output.
-    highlights="$(grep -a -i -E \
-        'cmake error|fatal error|error:|undefined reference|no such file|not found|cannot find|failed|exception|traceback' \
-        "$log" 2>/dev/null \
-        | grep -v -i -E 'warning|deprecat|^-W|0 errors' \
-        | grep -v '^+ ' \
-        | head -40)"
-    tail_lines="$(tail -n 12 "$log" 2>/dev/null)"
+    # which for a long build is usually unrelated output. The "-A 6" matters:
+    # CMake prints the reason on the lines after "CMake Error", and every
+    # feature probe in this build prints the word "not found" as routine noise.
+    highlights="$(grep -a -A 6 -E 'CMake Error' "$log" 2>/dev/null | head -300)"
+    if [ -z "$highlights" ]; then
+        highlights="$(grep -a -E 'fatal error:|error: |undefined reference|Error:|Traceback|CMakeFiles/.*\.o' "$log" 2>/dev/null | head -40)"
+    fi
+    if [ -z "$highlights" ]; then
+        highlights="$(tail -n 40 "$log" 2>/dev/null)"
+    fi
+    tail_lines="$(tail -n 8 "$log" 2>/dev/null)"
 
     message="$(printf '%s\n%s\n' "$highlights" "$tail_lines" \
         | sed -e 's/%/%25/g' -e 's/\r//g' \
         | awk 'NF { printf "%s%%0A", $0 }')"
-    printf '::error::%s\n' "${message:0:6000}"
+    printf '::error::%s\n' "${message:0:8000}"
 fi
 
 exit "$status"
