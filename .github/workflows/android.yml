@@ -213,6 +213,14 @@ jobs:
             libs="$(unzip -l "$apk" 2>/dev/null | grep -c 'lib/arm64-v8a/.*\.so' || true)"
             biggest="$(unzip -l "$apk" 2>/dev/null | grep 'lib/arm64-v8a/.*\.so' | sort -k1 -n | tail -3 | awk '{printf "%s(%dKB) ", $4, $1/1024}' || true)"
             echo "::notice::native libraries: ${libs:-0} -> ${biggest:-none}"
+            # The engine cannot start without its own PK3s, so say whether they
+            # made it into the APK instead of leaving that to the first launch.
+            assets="$(unzip -l "$apk" 2>/dev/null | grep -c ' assets/' || true)"
+            if unzip -l "$apk" 2>/dev/null | grep -q ' assets/uzdoom.pk3'; then
+              echo "::notice::assets: ${assets} entries, uzdoom.pk3 present"
+            else
+              echo "::error::assets/uzdoom.pk3 is missing from the APK - the engine will not start"
+            fi
           done
           signer="$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1 || true)"
           if [ -n "$signer" ]; then
