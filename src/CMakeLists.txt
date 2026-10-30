@@ -94,12 +94,25 @@ else()
 		endif()
 	endif()
 
-	# Non-Windows version also needs SDL except native OS X backend
-	if( NOT APPLE OR NOT OSX_COCOA_BACKEND )
-		find_package( SDL2 REQUIRED )
-		include_directories( SYSTEM "${SDL2_INCLUDE_DIR}" )
-		link_directories(${SDL2_LINK_DIR})
-		set( PROJECT_LIBRARIES ${PROJECT_LIBRARIES} "${SDL2_LIBRARY}" )
+	if( ANDROID )
+		# SDL2 is built from source by the top-level CMakeLists.txt.
+		if( NOT TARGET SDL2::SDL2 )
+			message( FATAL_ERROR "The SDL2 target is missing. Android builds must pass -DUZDOOM_SDL2_SOURCE_DIR=<SDL2 source tree>." )
+		endif()
+		set( PROJECT_LIBRARIES ${PROJECT_LIBRARIES} SDL2::SDL2 )
+	else()
+		# Non-Windows version also needs SDL except native OS X backend
+		if( NOT APPLE OR NOT OSX_COCOA_BACKEND )
+			find_package( SDL2 REQUIRED )
+			include_directories( SYSTEM "${SDL2_INCLUDE_DIR}" )
+			link_directories(${SDL2_LINK_DIR})
+			set( PROJECT_LIBRARIES ${PROJECT_LIBRARIES} "${SDL2_LIBRARY}" )
+		endif()
+	endif()
+
+	if( ANDROID )
+		# liblog for the log mirror, libandroid for AAudio/asset helpers used by SDL2.
+		set( PROJECT_LIBRARIES ${PROJECT_LIBRARIES} log android )
 	endif()
 
 endif()
@@ -340,6 +353,8 @@ if( VPX_FOUND )
 	add_definitions( "-DUSE_LIBVPX=1" )
 	include_directories( SYSTEM "${VPX_INCLUDE_DIR}" )
 	set( PROJECT_LIBRARIES ${PROJECT_LIBRARIES} ${VPX_LIBRARIES} )
+elseif( NO_LIBVPX )
+	message( STATUS "Building without libvpx: VP8/VP9 .ivf cutscene playback will be unavailable." )
 else()
 	message( SEND_ERROR "Could not find libvpx" )
 endif()
@@ -409,6 +424,13 @@ set( PLAT_SDL_SOURCES
 	common/platform/posix/sdl/st_start.cpp )
 set( PLAT_UNIX_SOURCES
 	common/platform/posix/unix/i_specialpaths.cpp )
+
+if( ANDROID )
+	# crashcatcher.c forks and shells out to gdb, which does not exist on Android.
+	# Logs go to logcat and to $UZDOOM_LOG instead (see common/platform/android).
+	list( REMOVE_ITEM PLAT_SDL_SOURCES common/platform/posix/sdl/crashcatcher.c )
+	list( APPEND PLAT_SDL_SOURCES common/platform/android/i_android_log.cpp )
+endif()
 set( PLAT_OSX_SOURCES
 	common/platform/posix/osx/iwadpicker_cocoa.mm
 	common/platform/posix/osx/i_specialpaths.mm
@@ -450,6 +472,10 @@ else()
 	set( SYSTEM_SOURCES_DIR common/platform/posix common/platform/posix/sdl )
 	set( SYSTEM_SOURCES ${PLAT_POSIX_SOURCES} ${PLAT_SDL_SOURCES} ${PLAT_UNIX_SOURCES} )
 	set( OTHER_SYSTEM_SOURCES ${PLAT_WIN32_SOURCES} ${PLAT_OSX_SOURCES} ${PLAT_COCOA_SOURCES} )
+
+	if( ANDROID )
+		list( APPEND SYSTEM_SOURCES_DIR common/platform/android )
+	endif()
 
 	if ( SYSTEMINSTALL )
 		add_definitions( -DPROGDIR="${CMAKE_INSTALL_PREFIX}/${INSTALL_PK3_PATH}" )
@@ -1276,7 +1302,13 @@ set( GAME_SOURCES
 set( GAME_NONPCH_SOURCES ${GAME_SOURCES} )
 list( REMOVE_ITEM GAME_NONPCH_SOURCES ${PCH_SOURCES} )
 
-add_executable( zdoom MACOSX_BUNDLE ${GAME_SOURCES} )
+if( ANDROID )
+	# SDLActivity dlopen()s "libmain.so" and calls SDL_main() inside it, so the
+	# game is a shared library rather than an executable.
+	add_library( zdoom SHARED ${GAME_SOURCES} )
+else()
+	add_executable( zdoom MACOSX_BUNDLE ${GAME_SOURCES} )
+endif()
 
 target_include_directories( zdoom PRIVATE ${CMAKE_BINARY_DIR} )
 
@@ -1318,7 +1350,7 @@ if(${CMAKE_SYSTEM_NAME} STREQUAL "SunOS")
 	set( PROJECT_LIBRARIES ${PROJECT_LIBRARIES} nsl socket)
 endif()
 
-if( UNIX )
+if( UNIX AND NOT ANDROID )
 	find_package( Backtrace )
 	if(Backtrace_FOUND)
 		set( PROJECT_LIBRARIES ${PROJECT_LIBRARIES} ${Backtrace_LIBRARIES} )
@@ -1393,10 +1425,18 @@ include_directories(
 	${SYSTEM_SOURCES_DIR}
 )
 
-set_target_properties( zdoom PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${ZDOOM_OUTPUT_DIR} )
-set_target_properties( zdoom PROPERTIES OUTPUT_NAME ${ZDOOM_EXE_NAME} )
+if( ANDROID )
+	# Must end up as libmain.so: SDLActivity derives the entry point library
+	# from the last entry returned by getLibraries() (see android/app).
+	set_target_properties( zdoom PROPERTIES
+		OUTPUT_NAME "main"
+		LIBRARY_OUTPUT_DIRECTORY ${ZDOOM_OUTPUT_DIR} )
+else()
+	set_target_properties( zdoom PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${ZDOOM_OUTPUT_DIR} )
+	set_target_properties( zdoom PROPERTIES OUTPUT_NAME ${ZDOOM_EXE_NAME} )
+endif()
 
-if(NOT MINGW AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+if(NOT MINGW AND NOT ANDROID AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 	set_target_properties(zdoom PROPERTIES LINK_FLAGS "-z nostart-stop-gc")
 endif()
 
@@ -1438,6 +1478,8 @@ elseif (APPLE)
 	IF ("${INSTALL_RPATH}" STREQUAL "")
 		set_target_properties(zdoom PROPERTIES MACOSX_RPATH TRUE)
 	endif()
+elseif (ANDROID)
+	# Shared library packaged into the APK; no symlink or RPATH to set up.
 else()
 	FILE( WRITE ${CMAKE_CURRENT_BINARY_DIR}/link-make "if [ ! -e ${ZDOOM_OUTPUT_DIR}/${ZDOOM_EXE_NAME} ]; then ln -sf ${CMAKE_CURRENT_BINARY_DIR}/${ZDOOM_EXE_NAME} ${ZDOOM_OUTPUT_DIR}/${ZDOOM_EXE_NAME}; fi" )
 	add_custom_command( TARGET zdoom POST_BUILD
@@ -1451,17 +1493,20 @@ else()
 	endif()
 endif()
 
-add_custom_command(TARGET zdoom POST_BUILD
-	COMMAND ${CMAKE_COMMAND} -E copy_directory
-		"${CMAKE_SOURCE_DIR}/soundfont"
-		"${ZDOOM_RESOURCE_DIR}/soundfonts"
+if( NOT ANDROID )
+	# On Android these resources are shipped through the APK assets instead.
+	add_custom_command(TARGET zdoom POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+			"${CMAKE_SOURCE_DIR}/soundfont"
+			"${ZDOOM_RESOURCE_DIR}/soundfonts"
 
-	COMMAND ${CMAKE_COMMAND} -E copy_directory
-		"${CMAKE_SOURCE_DIR}/fm_banks"
-		"${ZDOOM_RESOURCE_DIR}/fm_banks"
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+			"${CMAKE_SOURCE_DIR}/fm_banks"
+			"${ZDOOM_RESOURCE_DIR}/fm_banks"
 
-	VERBATIM
-)
+		VERBATIM
+	)
+endif()
 
 if (VCPKG_TOOLCHAIN)
 	x_vcpkg_install_local_dependencies(TARGETS zdoom DESTINATION ".")

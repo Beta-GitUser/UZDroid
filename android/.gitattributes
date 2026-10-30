@@ -1,0 +1,4 @@
+# Keep the Gradle wrapper shell scripts exactly as Gradle ships them.
+gradlew        text eol=lf
+gradlew.bat    text eol=crlf
+*.jar          binary

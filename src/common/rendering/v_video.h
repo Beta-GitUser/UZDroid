@@ -75,6 +75,9 @@ enum {
 
 #if defined(VID_BACKEND)
 	BACKEND_DEFAULT = VID_BACKEND,
+#elif defined(__ANDROID__) && defined(HAVE_GLES2)
+	// Android has no desktop GL 3.3 core profile to give us.
+	BACKEND_DEFAULT = BACKEND_OPENGLES,
 #elif defined(HAVE_VULKAN) and not defined(__APPLE__)
 	BACKEND_DEFAULT = BACKEND_VULKAN,
 #else

@@ -46,6 +46,10 @@
 #include "version.h"
 #include "zstring.h"
 
+#ifdef __ANDROID__
+#include "i_android_log.h"
+#endif
+
 // MACROS ------------------------------------------------------------------
 
 // TYPES -------------------------------------------------------------------
@@ -58,7 +62,7 @@ extern "C" int cc_install_handlers(int, char**, int, int*, const char*, int(*)(c
 void Mac_I_FatalError(const char* errortext);
 #endif
 
-#ifdef __linux__
+#if defined(__linux__) && !defined(__ANDROID__)
 void Linux_I_FatalError(const char* errortext);
 
 static void Linux_I_TryRestart(char **argv)
@@ -82,7 +86,11 @@ static void I_TryRestart(char **argv)
 {
 	// TODO: Mac support
 
-#ifdef __linux__
+#ifdef __ANDROID__
+	// There is no process to re-exec: the game *is* the process. Android will
+	// restart the activity if it needs to.
+	(void)argv;
+#elif defined(__linux__)
 	Linux_I_TryRestart(argv);
 #endif
 }
@@ -112,11 +120,13 @@ FArgs *Args;
 
 
 
+#if !defined(__ANDROID__)
 static int GetCrashInfo (char *buffer, char *end)
 {
 	if (sysCallbacks.CrashInfo) sysCallbacks.CrashInfo(buffer, end - buffer, "\n");
 	return strlen(buffer);
 }
+#endif
 
 FString I_DetectOS()
 {
@@ -180,12 +190,15 @@ void I_StartupJoysticks();
 
 int main (int argc, char **argv)
 {
-#if !defined (__APPLE__)
+#if defined(__ANDROID__)
+	// No console here: mirror stdout/stderr into logcat and $UZDOOM_LOG.
+	I_Android_InitLogging();
+#elif !defined (__APPLE__)
 	{
 		int s[4] = { SIGSEGV, SIGILL, SIGFPE, SIGBUS };
 		cc_install_handlers(argc, argv, 4, s, GAMENAMELOWERCASE "-crash.log", GetCrashInfo);
 	}
-#endif // !__APPLE__
+#endif // __ANDROID__ / !__APPLE__
 
 	signal(SIGINT, SignalHandler);
 	signal(SIGTERM, SignalHandler);
@@ -218,6 +231,12 @@ int main (int argc, char **argv)
 
 #ifdef PROGDIR
 	progdir = PROGDIR;
+#elif defined(__ANDROID__)
+	// argv[0] is whatever SDLActivity felt like passing, so it cannot be used to
+	// find the engine data. The launcher extracts the PK3s first and points
+	// UZDOOM_PROGDIR at them.
+	const char *androidProgDir = getenv("UZDOOM_PROGDIR");
+	progdir.Format("%s/", (androidProgDir != nullptr && *androidProgDir != '\0') ? androidProgDir : ".");
 #else
 	char program[PATH_MAX];
 	if (realpath (argv[0], program) == NULL)

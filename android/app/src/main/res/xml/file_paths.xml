@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Documents/UZDroid when all-files access is granted -->
+    <external-path
+        name="uzdroid_documents"
+        path="Documents/UZDroid" />
+    <!-- Fallback: Android/data/org.uzdoom.uzdroid/files/UZDroid -->
+    <external-files-path
+        name="uzdroid_external_files"
+        path="." />
+    <files-path
+        name="uzdroid_internal"
+        path="." />
+</paths>

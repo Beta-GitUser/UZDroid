@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/app_name"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/data_root_caption"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/tv_root"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textIsSelectable="true"
+            android:textSize="12sp"
+            android:typeface="monospace" />
+
+        <Button
+            android:id="@+id/btn_storage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/grant_storage" />
+
+        <Button
+            android:id="@+id/btn_launch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/launch"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <!-- WAD selection -->
+
+        <TextView
+            style="@style/SectionHeader"
+            android:text="@string/section_wads" />
+
+        <LinearLayout
+            android:id="@+id/iwad_list"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+        <Button
+            android:id="@+id/btn_rescan"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/rescan" />
+
+        <!-- Display -->
+
+        <TextView
+            style="@style/SectionHeader"
+            android:text="@string/section_display" />
+
+        <TextView
+            android:id="@+id/tv_scale"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/scale_native" />
+
+        <SeekBar
+            android:id="@+id/seek_scale"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <CheckBox
+            android:id="@+id/chk_custom"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/custom_resolution" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/et_width"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="@string/width"
+                android:importantForAutofill="no"
+                android:inputType="number"
+                android:maxLength="5" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:text="@string/times" />
+
+            <EditText
+                android:id="@+id/et_height"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="@string/height"
+                android:importantForAutofill="no"
+                android:inputType="number"
+                android:maxLength="5" />
+
+            <Button
+                android:id="@+id/btn_screen_size"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:text="@string/screen_size" />
+        </LinearLayout>
+
+        <!-- Command line -->
+
+        <TextView
+            style="@style/SectionHeader"
+            android:text="@string/section_args" />
+
+        <EditText
+            android:id="@+id/et_args"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="top|start"
+            android:hint="@string/args_hint"
+            android:importantForAutofill="no"
+            android:inputType="textMultiLine|textNoSuggestions"
+            android:minLines="3"
+            android:typeface="monospace" />
+
+        <Button
+            android:id="@+id/btn_add_file"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/add_file" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/add_file_hint"
+            android:textSize="12sp" />
+
+        <!-- Data -->
+
+        <TextView
+            style="@style/SectionHeader"
+            android:text="@string/section_data" />
+
+        <Button
+            android:id="@+id/btn_open_data"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/open_data" />
+
+        <Button
+            android:id="@+id/btn_share_log"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/share_log" />
+
+        <Button
+            android:id="@+id/btn_reset_config"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/reset_config" />
+
+    </LinearLayout>
+</ScrollView>

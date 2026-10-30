@@ -1,0 +1,113 @@
+plugins {
+    id 'com.android.application'
+}
+
+// ---------------------------------------------------------------------------
+// SDL2 source tree (see android/README.md)
+// ---------------------------------------------------------------------------
+def sdl2Prop = project.findProperty('uzdoom.sdl2Dir') ?: 'deps/SDL'
+def sdl2Dir = new File(sdl2Prop)
+if (!sdl2Dir.isAbsolute()) {
+    sdl2Dir = new File(rootProject.projectDir, sdl2Prop)
+}
+def sdl2Path = sdl2Dir.absolutePath.replace('\\', '/')
+
+if (!new File(sdl2Dir, 'CMakeLists.txt').exists()) {
+    logger.warn("SDL2 source tree not found at ${sdl2Path}. " +
+            "Run android/scripts/fetch-deps.sh (or set uzdoom.sdl2Dir in gradle.properties).")
+}
+
+// The PK3s have to be generated on the host and dropped into assets/.
+def assetsDir = file('src/main/assets')
+def requiredAssets = ['uzdoom.pk3', 'game_support.pk3', 'brightmaps.pk3', 'lights.pk3',
+                      'game_widescreen_gfx.pk3']
+
+android {
+    namespace 'org.uzdoom.uzdroid'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'org.uzdoom.uzdroid'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName '0.1.0'
+
+        // The engine is 64 bit only.
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+
+        externalNativeBuild {
+            cmake {
+                arguments "-DUZDOOM_SDL2_SOURCE_DIR=${sdl2Path}"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            // The engine's own CMakeLists doubles as the Android build script.
+            path '../../CMakeLists.txt'
+        }
+    }
+
+    buildTypes {
+        debug {
+            jniDebuggable true
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // Keep the .so files as real files inside the app's lib directory: the
+    // engine dlopen()s libopenal.so by soname and that is the path it looks in.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+}
+
+// ---------------------------------------------------------------------------
+// Host-side PK3 generation
+//
+// zipdir/lemon/re2c are host tools, so the PK3s cannot be produced by the NDK
+// build. This task shells out to a script that builds them with the host
+// toolchain and copies them into assets/.
+// ---------------------------------------------------------------------------
+tasks.register('hostAssets', Exec) {
+    workingDir rootProject.projectDir
+    commandLine 'bash', 'scripts/build-host-assets.sh'
+    onlyIf {
+        !requiredAssets.every { new File(assetsDir, it).exists() }
+    }
+    ignoreExitValue = true
+    doLast {
+        if (execResult.exitValue != 0) {
+            throw new GradleException(
+                    "Could not generate the engine PK3 assets.\n" +
+                    "Run 'bash android/scripts/build-host-assets.sh' manually and check its output " +
+                    "(see android/README.md, section 'Engine data').")
+        }
+    }
+}
+
+tasks.matching { it.name == 'preBuild' }.configureEach {
+    dependsOn 'hostAssets'
+}

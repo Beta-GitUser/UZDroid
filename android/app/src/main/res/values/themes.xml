@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.UZDroid" parent="Theme.AppCompat.DayNight">
+        <item name="colorPrimary">@color/uz_primary</item>
+        <item name="colorPrimaryDark">@color/uz_primary_dark</item>
+        <item name="colorAccent">@color/uz_accent</item>
+    </style>
+
+    <!-- Full screen, no title bar: this is the one the engine runs in. -->
+    <style name="Theme.UZDroid.Game" parent="@android:style/Theme.NoTitleBar.Fullscreen">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFullscreen">true</item>
+    </style>
+
+</resources>

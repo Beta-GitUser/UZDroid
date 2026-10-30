@@ -99,4 +99,6 @@ To build UZDoom from source, please see UZDoom's GitHub [wiki][gh_wiki] for a fu
 
 This is a (currently) Work In Progress Android-native UZDoom port that tries to create both user-friendly envirovement and expansive customisation that can give just the edge.
 
+Build instructions, the data-folder layout and the current feature set live in [`android/README.md`](android/README.md).
+
 As of currently, i still personally recommend using OpenTouchGaming's UZDoom port, which is bundled in Delta Touch. It's paid, yes, but it's currently best option one can have to run UZDoom with user-friendly envirovement. This port is rough and vibecoded, former which will stay so for a REALLY long while, so i'm suggesting better alternatives.
