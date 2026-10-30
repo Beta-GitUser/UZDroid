@@ -768,6 +768,14 @@ static SDLInputJoystickManager *JoystickManager;
 void I_StartupJoysticks()
 {
 #ifndef NO_SDL_JOYSTICK
+#ifdef __ANDROID__
+	// SDL's Android joystick backend registers the accelerometer as a joystick
+	// called "Android Accelerometer" (three axes, on by default). Its axes rest
+	// wherever gravity points, which the engine reads as a direction being held
+	// - the menu scrolls on its own and the view drifts while playing. This has
+	// to be set before the joystick subsystem starts.
+	SDL_SetHint(SDL_HINT_ACCELEROMETER_AS_JOYSTICK, "0");
+#endif
 	if(SDL_InitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC | SDL_INIT_GAMECONTROLLER) >= 0)
 		JoystickManager = new SDLInputJoystickManager();
 #endif
