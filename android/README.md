@@ -87,6 +87,31 @@ Or open `android/` in Android Studio and hit Run.
 
 Only `arm64-v8a` is built - the engine is 64-bit only.
 
+### 3b. Let GitHub build it
+
+`.github/workflows/android.yml` does all of the above on an `ubuntu-latest`
+runner: it fetches SDL2, builds the PK3s, runs a CMake configure smoke test
+(which catches build-wiring mistakes in about a minute) and then builds the
+APK, uploading it as the artifact `uzdroid-apk-<run number>`. It runs on every
+push, and can be started by hand from *Actions -> Android APK -> Run workflow*
+(choose `release`, `debug` or `both`).
+
+Release signing is optional. Add these repository secrets to get an APK signed
+with your own key:
+
+| Secret | Value |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 release.jks` |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore password |
+| `ANDROID_KEY_ALIAS` | key alias |
+| `ANDROID_KEY_PASSWORD` | key password |
+
+Without them the release APK is signed with the debug key: it installs
+normally, but Android refuses to update an app that was signed with a different
+key, so pick one and stay with it. For local signed builds, put the same four
+values in `android/keystore.properties` (`storeFile`, `storePassword`,
+`keyAlias`, `keyPassword`); it is gitignored.
+
 ### 4. Sound (optional)
 
 The engine has exactly one audio backend: OpenAL, `dlopen()`ed at runtime. Build

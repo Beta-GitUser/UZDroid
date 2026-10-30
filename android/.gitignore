@@ -1,6 +1,11 @@
 # Gradle / Android Studio
 .gradle/
 local.properties
+# Signing material - never commit these
+keystore.properties
+*.jks
+*.keystore
+release.jks
 *.iml
 .idea/
 # Native build output

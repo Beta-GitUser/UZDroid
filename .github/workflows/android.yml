@@ -1,0 +1,193 @@
+name: Android APK
+
+# Builds the Android wrapper (see android/README.md) and publishes an
+# installable APK as a workflow artifact. Nothing Android-related needs to be
+# installed locally.
+#
+# For a *signed* release build, add these under Settings -> Secrets and
+# variables -> Actions (without them the APK is signed with the debug key,
+# which installs fine but cannot update an app signed with another key):
+#
+#   ANDROID_KEYSTORE_BASE64    base64 -w0 release.jks
+#   ANDROID_KEYSTORE_PASSWORD  keystore password
+#   ANDROID_KEY_ALIAS          key alias
+#   ANDROID_KEY_PASSWORD       key password
+
+on:
+  push:
+    branches: ['**']
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: 'Which APK to build'
+        type: choice
+        options: [release, debug, both]
+        default: release
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    name: Build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    env:
+      UZDROID_CCACHE: '1'
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 2G
+      CCACHE_COMPRESS: '1'
+      # Points at the file the "Decode keystore" step writes. When the secret is
+      # absent the file is absent too and gradle falls back to debug signing.
+      UZDROID_KEYSTORE_FILE: ${{ github.workspace }}/release.jks
+      UZDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      UZDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      UZDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ccache ninja-build python3
+          cmake --version | head -1
+          ccache --version | head -1
+
+      - name: Prepare Android SDK, NDK and CMake
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
+
+          # AGP asks for this exact cmake version.
+          if [ ! -d "$sdk/cmake/3.22.1" ]; then
+            yes | sdkmanager --install "cmake;3.22.1" > /dev/null
+          fi
+
+          # Any recent NDK will do; AGP picks the newest installed one.
+          if ! ls -d "$sdk"/ndk/* > /dev/null 2>&1; then
+            yes | sdkmanager --install "ndk;27.0.12077973" > /dev/null
+          fi
+          ndk="$(ls -d "$sdk"/ndk/* | sort -V | tail -1)"
+          echo "NDK_ROOT=$ndk" >> "$GITHUB_ENV"
+          echo "Using NDK $ndk"
+          sdkmanager --list_installed | grep -E 'ndk;|cmake;|platforms;android-3|build-tools' || true
+
+      - name: Version stamp
+        run: |
+          {
+            echo "UZDROID_VERSION_CODE=${{ github.run_number }}"
+            echo "UZDROID_VERSION_NAME=0.1.${{ github.run_number }}"
+          } >> "$GITHUB_ENV"
+
+      # Host-native, and quick - but this is what produces the APK contents, so
+      # it gets its own step name when it breaks.
+      - name: Fetch SDL2
+        run: ./android/scripts/fetch-deps.sh
+
+      - name: Build engine data (PK3s)
+        env:
+          UZDROID_CCACHE: '0'
+        run: ./android/scripts/build-host-assets.sh
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ github.sha }}
+          restore-keys: |
+            ccache-
+
+      # The engine is ~1500 translation units. A configure on its own takes a
+      # minute and catches build-wiring mistakes long before the build does.
+      - name: CMake configure smoke test
+        run: |
+          set -euo pipefail
+          cmake -S . -B /tmp/configure-check -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK_ROOT/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-24 \
+            -DANDROID_STL=c++_static \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DUZDOOM_SDL2_SOURCE_DIR="$GITHUB_WORKSPACE/android/deps/SDL"
+
+      - name: Decode keystore
+        if: env.KEYSTORE_BASE64 != ''
+        run: |
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$UZDROID_KEYSTORE_FILE"
+          echo "Release keystore ready ($(stat -c%s "$UZDROID_KEYSTORE_FILE") bytes)"
+
+      - name: Build APK
+        working-directory: android
+        run: |
+          set -o pipefail
+          case "${{ inputs.variant }}" in
+            debug) tasks=assembleDebug ;;
+            both)  tasks="assembleDebug assembleRelease" ;;
+            *)     tasks=assembleRelease ;;
+          esac
+          echo "Gradle tasks: $tasks"
+          ./gradlew --no-daemon --stacktrace --console=plain $tasks 2>&1 | tee build.log
+
+      - name: Summarise result
+        if: always()
+        run: |
+          shopt -s nullglob
+          apks=(android/app/build/outputs/apk/**/*.apk)
+          if [ ${#apks[@]} -eq 0 ]; then
+            echo "### No APK produced" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "### APKs" >> "$GITHUB_STEP_SUMMARY"
+          for apk in "${apks[@]}"; do
+            size="$(du -h "$apk" | cut -f1)"
+            echo "- \`$(basename "$apk")\` - $size" >> "$GITHUB_STEP_SUMMARY"
+            echo "$size  $apk"
+          done
+          signer="$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -n "$signer" ]; then
+            echo "### Signing" >> "$GITHUB_STEP_SUMMARY"
+            "$signer" verify --print-certs "${apks[0]}" 2>&1 | head -4 | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY" || true
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: uzdroid-apk-${{ github.run_number }}
+          path: android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.run_number }}
+          path: |
+            android/build.log
+            android/app/.cxx/**/*.log
+            android/app/.cxx/**/*.txt
+          if-no-files-found: ignore
+          retention-days: 14
