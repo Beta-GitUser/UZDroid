@@ -48,8 +48,10 @@ jobs:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       CCACHE_MAXSIZE: 2G
       CCACHE_COMPRESS: '1'
-      # The NDK is pinned in android/app/build.gradle; keep both in sync.
-      ANDROID_NDK_VERSION: '27.0.12077973'
+      # Preferred toolchain versions; the SDK step keeps them if the runner
+      # image has them and otherwise picks the closest one it does have.
+      PREFERRED_NDK_VERSION: '27.3.13750724'
+      PREFERRED_CMAKE_VERSION: '3.22.1'
       # Points at the file the "Decode keystore" step writes. When the secret is
       # absent the file is absent too and gradle falls back to debug signing.
       UZDROID_KEYSTORE_FILE: ${{ github.workspace }}/release.jks
@@ -99,21 +101,34 @@ jobs:
           # under pipefail that would abort the step, hence the || true.
           install_pkg() {
               echo "installing sdk package $1"
-              { yes 2>/dev/null || true; } | sdkmanager --install "$1" > /dev/null 2>&1 || true
+              { yes 2>/dev/null || true; } | sdkmanager --install "$1" 2>&1 | tail -3 || true
           }
 
-          # AGP asks for this exact cmake version (see app/build.gradle).
-          [ -d "$sdk/cmake/3.22.1" ] || install_pkg "cmake;3.22.1"
-          [ -d "$sdk/ndk/$ANDROID_NDK_VERSION" ] || install_pkg "ndk;$ANDROID_NDK_VERSION"
+          install_pkg "cmake;$PREFERRED_CMAKE_VERSION"
+          install_pkg "ndk;$PREFERRED_NDK_VERSION"
 
           echo "--- installed ---"
           ls -d "$sdk"/cmake/* "$sdk"/ndk/* 2>/dev/null || true
 
-          [ -d "$sdk/cmake/3.22.1" ]   || { echo "cmake 3.22.1 is missing"; exit 1; }
-          [ -d "$sdk/ndk/$ANDROID_NDK_VERSION" ] || { echo "NDK $ANDROID_NDK_VERSION is missing"; exit 1; }
-          echo "NDK_ROOT=$sdk/ndk/$ANDROID_NDK_VERSION" >> "$GITHUB_ENV"
+          # CMake 4 refuses cmake_minimum_required below 3.5, which SDL2 still
+          # uses, so never pick 4.x.
+          cmake_version="$(ls -d "$sdk"/cmake/* 2>/dev/null | sed 's|.*/||' | sort -V | awk -F. '$1 < 4' | tail -1)"
+          [ -n "$cmake_version" ] || { echo "no CMake 3.x found in the SDK"; exit 1; }
+
+          # Same for the NDK: prefer the 27.x line that AGP 8.7 knows about.
+          ndk_version="$(ls -d "$sdk"/ndk/* 2>/dev/null | sed 's|.*/||' | grep '^27\.' | sort -V | tail -1)"
+          [ -n "$ndk_version" ] || ndk_version="$(ls -d "$sdk"/ndk/* 2>/dev/null | sed 's|.*/||' | sort -V | tail -1)"
+          [ -n "$ndk_version" ] || { echo "no NDK found in the SDK"; exit 1; }
+
+          {
+            echo "UZDROID_CMAKE_VERSION=$cmake_version"
+            echo "UZDROID_NDK_VERSION=$ndk_version"
+            echo "NDK_ROOT=$sdk/ndk/$ndk_version"
+          } >> "$GITHUB_ENV"
+
+          echo "cmake $cmake_version, ndk $ndk_version"
           SH
-          .github/scripts/ci-run.sh "$GITHUB_WORKSPACE/sdk.log" bash /tmp/sdk.sh
+          .github/scripts/ci-run.sh "$GITHUB_WORKSPACE/sdk.log" bash -x /tmp/sdk.sh
 
       - name: Version stamp
         run: |

@@ -53,12 +53,17 @@ def appVersionName = System.getenv('UZDROID_VERSION_NAME') ?: '0.1.0'
 // apply to non-Android builds.
 def useCcache = System.getenv('UZDROID_CCACHE') == '1'
 
+// Toolchain versions. The defaults are what AGP and Android Studio install; CI
+// overrides them to match whatever the runner image actually has.
+def ndkVersionToUse = System.getenv('UZDROID_NDK_VERSION') ?: '27.0.12077973'
+def cmakeVersionToUse = System.getenv('UZDROID_CMAKE_VERSION') ?: '3.22.1'
+
 android {
     namespace 'org.uzdoom.uzdroid'
     compileSdk 35
     // Pinned so that a newer NDK appearing on a build machine cannot silently
-    // change the toolchain. Keep in sync with .github/workflows/android.yml.
-    ndkVersion '27.0.12077973'
+    // change the toolchain.
+    ndkVersion ndkVersionToUse
 
     defaultConfig {
         applicationId 'org.uzdoom.uzdroid'
@@ -88,8 +93,8 @@ android {
             // The engine's own CMakeLists doubles as the Android build script.
             path '../../CMakeLists.txt'
             // SDL2 still declares cmake_minimum_required(3.0), which CMake 4
-            // refuses; 3.22.1 is what AGP expects anyway.
-            version '3.22.1'
+            // refuses, so this must never resolve to 4.x.
+            version cmakeVersionToUse
         }
     }
 
