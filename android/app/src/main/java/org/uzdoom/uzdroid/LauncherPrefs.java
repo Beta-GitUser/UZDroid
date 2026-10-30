@@ -31,6 +31,12 @@ public final class LauncherPrefs {
 
     public String lastWad = "";
 
+    /** SDL joystick/gamepad handling (passes +use_joystick 0 when false). */
+    public boolean joystickEnabled = true;
+
+    /** Touch is delivered to the engine as mouse motion and buttons. */
+    public boolean touchAsMouse = true;
+
     public static LauncherPrefs load(Context context) {
         SharedPreferences sp = context.getSharedPreferences(FILE, Context.MODE_PRIVATE);
         LauncherPrefs prefs = new LauncherPrefs();
@@ -40,6 +46,8 @@ public final class LauncherPrefs {
         prefs.customHeight = sp.getInt("customHeight", 720);
         prefs.extraArgs = sp.getString("extraArgs", "");
         prefs.lastWad = sp.getString("lastWad", "");
+        prefs.joystickEnabled = sp.getBoolean("joystickEnabled", true);
+        prefs.touchAsMouse = sp.getBoolean("touchAsMouse", true);
         return prefs;
     }
 
@@ -52,6 +60,8 @@ public final class LauncherPrefs {
                 .putInt("customHeight", customHeight)
                 .putString("extraArgs", extraArgs)
                 .putString("lastWad", lastWad)
+                .putBoolean("joystickEnabled", joystickEnabled)
+                .putBoolean("touchAsMouse", touchAsMouse)
                 .apply();
     }
 }

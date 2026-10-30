@@ -37,6 +37,7 @@
 #include "i_input.h"
 #include "i_interface.h"
 #include "keydef.h"
+#include "printf.h"
 #include "m_haptics.h"
 #include "m_joy.h"
 #include "tarray.h"
@@ -667,12 +668,82 @@ void MessagePump (const SDL_Event &sev)
 	}
 }
 
+#ifdef __ANDROID__
+// Android port debug aid: the first few raw SDL events of each kind are written
+// to the engine log, which is what makes a phantom input device identifiable
+// (a stuck axis, a key that never repeats an up event, touch-as-mouse motion).
+// Capped per kind so a finger held on the screen cannot flood the log.
+static void TraceInputEvent(const SDL_Event &sev)
+{
+	static int budget[8] = { 25, 25, 25, 25, 25, 25, 25, 25 };
+	int slot = -1;
+
+	switch (sev.type)
+	{
+	case SDL_KEYDOWN:
+	case SDL_KEYUP:
+		slot = 0;
+		if (budget[slot]-- <= 0) return;
+		Printf("IN key %s scancode=%d sym=%d repeat=%d\n",
+			sev.type == SDL_KEYDOWN ? "down" : "up",
+			sev.key.keysym.scancode, sev.key.keysym.sym, sev.key.repeat);
+		return;
+	case SDL_MOUSEMOTION:
+		slot = 1;
+		if (budget[slot]-- <= 0) return;
+		Printf("IN mouse motion x=%d y=%d xrel=%d yrel=%d\n",
+			sev.motion.x, sev.motion.y, sev.motion.xrel, sev.motion.yrel);
+		return;
+	case SDL_MOUSEBUTTONDOWN:
+	case SDL_MOUSEBUTTONUP:
+		slot = 2;
+		if (budget[slot]-- <= 0) return;
+		Printf("IN mouse %s button=%d x=%d y=%d\n",
+			sev.type == SDL_MOUSEBUTTONDOWN ? "down" : "up",
+			sev.button.button, sev.button.x, sev.button.y);
+		return;
+	case SDL_JOYAXISMOTION:
+	case SDL_CONTROLLERAXISMOTION:
+		slot = 3;
+		if (budget[slot]-- <= 0) return;
+		Printf("IN joy axis=%d value=%d\n", sev.jaxis.axis, sev.jaxis.value);
+		return;
+	case SDL_JOYHATMOTION:
+		slot = 4;
+		if (budget[slot]-- <= 0) return;
+		Printf("IN joy hat=%d value=%d\n", sev.jhat.hat, sev.jhat.value);
+		return;
+	case SDL_JOYBUTTONDOWN:
+	case SDL_JOYBUTTONUP:
+	case SDL_CONTROLLERBUTTONDOWN:
+	case SDL_CONTROLLERBUTTONUP:
+		slot = 5;
+		if (budget[slot]-- <= 0) return;
+		Printf("IN joy button=%d value=%d\n", sev.jbutton.button, sev.jbutton.state);
+		return;
+	case SDL_FINGERDOWN:
+	case SDL_FINGERUP:
+	case SDL_FINGERMOTION:
+		slot = 6;
+		if (budget[slot]-- <= 0) return;
+		Printf("IN finger type=%d id=%d x=%.3f y=%.3f\n",
+			sev.type, sev.tfinger.fingerId, sev.tfinger.x, sev.tfinger.y);
+		return;
+	default:
+		return;
+	}
+}
+#endif
+
 void I_GetEvent ()
 {
 	SDL_Event sev;
 
 	while (SDL_PollEvent (&sev))
 	{
+#ifdef __ANDROID__
+		TraceInputEvent(sev);
+#endif
 		MessagePump (sev);
 	}
 	if (use_mouse)

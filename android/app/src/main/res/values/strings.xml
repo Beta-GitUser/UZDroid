@@ -15,6 +15,8 @@
     <string name="section_wads">Game data</string>
     <string name="rescan">Rescan for WAD files</string>
     <string name="no_wads">No WAD files found.\n\nDrop .wad files into:\n%1$s</string>
+    <string name="no_wads_short">No WAD files - put them in %1$s</string>
+    <string name="iwad_caption">IWAD</string>
 
     <!-- Display -->
     <string name="section_display">Display</string>
@@ -32,6 +34,13 @@
     <string name="add_file">Add file to arguments…</string>
     <string name="add_file_hint">Any file can be picked. Text files whose lines are engine arguments are inlined as a launch config; everything else is appended as -file &lt;path&gt;. Files that are not reachable through a plain path are copied into mods/ first.</string>
     <string name="applied_config">Launch arguments applied from the file.</string>
+
+    <!-- Input -->
+    <string name="section_input">Input</string>
+    <string name="opt_joystick">Gamepad / joystick input</string>
+    <string name="opt_joystick_hint">Turns off SDL joystick handling entirely (+use_joystick 0). Use this when the menu scrolls on its own: that is a device reporting a stuck axis. Keyboard and mouse are unaffected.</string>
+    <string name="opt_touch_mouse">Touch acts as a mouse</string>
+    <string name="opt_touch_mouse_hint">Off: touches never turn into mouse clicks or motion, so grabbing the screen cannot move the view or the menu. You will need a real mouse or a gamepad to navigate.</string>
 
     <!-- Data -->
     <string name="section_data">Data</string>

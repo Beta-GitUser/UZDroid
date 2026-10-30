@@ -54,11 +54,12 @@
             style="@style/SectionHeader"
             android:text="@string/section_wads" />
 
-        <LinearLayout
-            android:id="@+id/iwad_list"
+        <Spinner
+            android:id="@+id/spin_iwad"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical" />
+            android:layout_marginTop="8dp"
+            android:minHeight="48dp" />
 
         <Button
             android:id="@+id/btn_rescan"
@@ -160,6 +161,37 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/add_file_hint"
+            android:textSize="12sp" />
+
+        <!-- Input -->
+
+        <TextView
+            style="@style/SectionHeader"
+            android:text="@string/section_input" />
+
+        <CheckBox
+            android:id="@+id/chk_joystick"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/opt_joystick" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/opt_joystick_hint"
+            android:textSize="12sp" />
+
+        <CheckBox
+            android:id="@+id/chk_touch_mouse"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/opt_touch_mouse" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/opt_touch_mouse_hint"
             android:textSize="12sp" />
 
         <!-- Data -->

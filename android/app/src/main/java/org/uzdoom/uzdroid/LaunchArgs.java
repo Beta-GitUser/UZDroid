@@ -32,6 +32,12 @@ public final class LaunchArgs {
 
         addResolution(args, prefs, screenWidth, screenHeight);
 
+        if (!prefs.joystickEnabled) {
+            // Applies before the joystick subsystem is set up, because the
+            // engine runs command line cvars long before video init.
+            addCvar(args, "use_joystick", "0");
+        }
+
         args.addAll(tokenize(prefs.extraArgs));
 
         return args.toArray(new String[0]);

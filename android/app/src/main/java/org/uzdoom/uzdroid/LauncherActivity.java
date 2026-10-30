@@ -21,11 +21,13 @@ import android.text.InputType;
 import android.text.TextUtils;
 import android.util.DisplayMetrics;
 import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
-import android.widget.LinearLayout;
 import android.widget.SeekBar;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -38,6 +40,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.List;
 
 public class LauncherActivity extends AppCompatActivity {
@@ -56,7 +59,8 @@ public class LauncherActivity extends AppCompatActivity {
     private Button btnStorage;
     private Button btnLaunch;
     private Button btnRescan;
-    private LinearLayout iwadList;
+    private Spinner spinIwad;
+    private List<File> wads = new ArrayList<>();
 
     private TextView tvScale;
     private SeekBar seekScale;
@@ -67,6 +71,9 @@ public class LauncherActivity extends AppCompatActivity {
 
     private EditText etArgs;
     private Button btnAddFile;
+
+    private CheckBox chkJoystick;
+    private CheckBox chkTouchMouse;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -79,7 +86,7 @@ public class LauncherActivity extends AppCompatActivity {
         btnStorage = findViewById(R.id.btn_storage);
         btnLaunch = findViewById(R.id.btn_launch);
         btnRescan = findViewById(R.id.btn_rescan);
-        iwadList = findViewById(R.id.iwad_list);
+        spinIwad = findViewById(R.id.spin_iwad);
 
         tvScale = findViewById(R.id.tv_scale);
         seekScale = findViewById(R.id.seek_scale);
@@ -90,6 +97,9 @@ public class LauncherActivity extends AppCompatActivity {
 
         etArgs = findViewById(R.id.et_args);
         btnAddFile = findViewById(R.id.btn_add_file);
+
+        chkJoystick = findViewById(R.id.chk_joystick);
+        chkTouchMouse = findViewById(R.id.chk_touch_mouse);
 
         setupListeners();
         restoreControls();
@@ -111,7 +121,7 @@ public class LauncherActivity extends AppCompatActivity {
     private void setupListeners() {
         btnStorage.setOnClickListener(v -> EnginePaths.requestAllFilesAccess(this));
 
-        btnLaunch.setOnClickListener(v -> launch(null));
+        btnLaunch.setOnClickListener(v -> launch(selectedWad()));
 
         btnRescan.setOnClickListener(v -> refresh());
 
@@ -151,6 +161,16 @@ public class LauncherActivity extends AppCompatActivity {
 
         btnAddFile.setOnClickListener(v -> pickFile());
 
+        chkJoystick.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            prefs.joystickEnabled = isChecked;
+            persist();
+        });
+
+        chkTouchMouse.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            prefs.touchAsMouse = isChecked;
+            persist();
+        });
+
         findViewById(R.id.btn_open_data).setOnClickListener(v -> openDataFolder());
         findViewById(R.id.btn_share_log).setOnClickListener(v -> shareLog());
         findViewById(R.id.btn_reset_config).setOnClickListener(v -> confirmResetConfig());
@@ -177,6 +197,9 @@ public class LauncherActivity extends AppCompatActivity {
         btnScreenSize.setEnabled(prefs.customResolution);
         seekScale.setEnabled(!prefs.customResolution);
 
+        chkJoystick.setChecked(prefs.joystickEnabled);
+        chkTouchMouse.setChecked(prefs.touchAsMouse);
+
         etArgs.setText(prefs.extraArgs);
         etArgs.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
                 | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
@@ -199,30 +222,57 @@ public class LauncherActivity extends AppCompatActivity {
         populateWads();
     }
 
+    /**
+     * Fills the IWAD dropdown. One row instead of a button per WAD, which used
+     * to push everything else off the screen.
+     */
     private void populateWads() {
-        iwadList.removeAllViews();
-
-        List<File> wads = EnginePaths.findWads(
+        wads = EnginePaths.findWads(
                 new File(root, "iwads"),
                 new File(root, "data/games/uzdoom"));
 
-        if (wads.isEmpty()) {
-            TextView empty = new TextView(this);
-            empty.setText(getString(R.string.no_wads, new File(root, "iwads").getAbsolutePath()));
-            empty.setPadding(0, dp(8), 0, dp(8));
-            iwadList.addView(empty);
-            return;
+        List<String> labels = new ArrayList<>();
+        int selected = 0;
+        for (int i = 0; i < wads.size(); i++) {
+            File wad = wads.get(i);
+            labels.add(wad.getName());
+            if (wad.getAbsolutePath().equals(prefs.lastWad)) {
+                selected = i;
+            }
         }
 
-        for (File wad : wads) {
-            Button button = new Button(this);
-            button.setText(wad.getName());
-            button.setAllCaps(false);
-            button.setOnClickListener(v -> launch(wad));
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            iwadList.addView(button, params);
+        final boolean empty = labels.isEmpty();
+        if (empty) {
+            labels.add(getString(R.string.no_wads_short, new File(root, "iwads").getAbsolutePath()));
         }
+
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, labels);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinIwad.setAdapter(adapter);
+        spinIwad.setEnabled(!empty);
+        spinIwad.setSelection(selected, false);
+        spinIwad.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                File wad = selectedWad();
+                prefs.lastWad = wad == null ? "" : wad.getAbsolutePath();
+                persist();
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
+        });
+    }
+
+    /** The WAD picked in the dropdown, or null when there is none. */
+    private File selectedWad() {
+        int position = spinIwad.getSelectedItemPosition();
+        if (position < 0 || position >= wads.size()) {
+            return null;
+        }
+        return wads.get(position);
     }
 
     // -----------------------------------------------------------------------
@@ -555,7 +605,4 @@ public class LauncherActivity extends AppCompatActivity {
         return new int[]{metrics.widthPixels, metrics.heightPixels};
     }
 
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
-    }
 }

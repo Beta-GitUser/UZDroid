@@ -32,6 +32,7 @@
 #include "i_input.h"
 #include "keydef.h"
 #include "m_joy.h"
+#include "printf.h"
 #include "tarray.h"
 #include "zstring.h"
 
@@ -117,6 +118,44 @@ public:
 		return (Mapping)
 			? SDL_GameControllerName(Mapping)
 			: SDL_JoystickName(Device);
+	}
+
+	/**
+	 * Android port debug aid: an uncalibrated or phantom device that reports a
+	 * permanently deflected axis is what makes the menu scroll on its own, so
+	 * dump the resting state of everything the device exposes.
+	 */
+	void PrintDeviceInfo()
+	{
+		FString name = GetName();
+		Printf("IN device %d: '%s' %s axes=%d hats=%d\n", DeviceIndex,
+			name.GetChars(), Mapping ? "(gamecontroller)" : "(raw joystick)",
+			NumAxes, NumHats);
+
+		if (Mapping != NULL)
+		{
+			for (int i = 0; i < SDL_CONTROLLER_AXIS_MAX; ++i)
+			{
+				int value = SDL_GameControllerGetAxis(Mapping, static_cast<SDL_GameControllerAxis>(i));
+				if (value != 0)
+					Printf("IN device %d: axis %d = %d\n", DeviceIndex, i, value);
+			}
+		}
+		else if (Device != NULL)
+		{
+			for (int i = 0; i < NumAxes; ++i)
+			{
+				int value = SDL_JoystickGetAxis(Device, i);
+				if (value != 0)
+					Printf("IN device %d: axis %d = %d\n", DeviceIndex, i, value);
+			}
+			for (int i = 0; i < NumHats; ++i)
+			{
+				int value = SDL_JoystickGetHat(Device, i);
+				if (value != 0)
+					Printf("IN device %d: hat %d = %d\n", DeviceIndex, i, value);
+			}
+		}
 	}
 	float GetSensitivity()
 	{
@@ -609,11 +648,15 @@ public:
 	void UpdateDeviceList()
 	{
 		Joysticks.DeleteAndClear();
+		Printf("IN SDL reports %d joystick(s), use_joystick=%d\n", SDL_NumJoysticks(), (int)(bool)use_joystick);
 		for(int i = 0; i < SDL_NumJoysticks(); i++)
 		{
 			SDLInputJoystick *device = new SDLInputJoystick(i);
 			if(device->IsValid())
+			{
+				device->PrintDeviceInfo();
 				Joysticks.Push(device);
+			}
 			else
 				delete device;
 		}

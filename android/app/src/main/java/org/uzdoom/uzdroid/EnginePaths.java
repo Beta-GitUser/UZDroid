@@ -150,6 +150,19 @@ public final class EnginePaths {
         setEnv("UZDOOM_LOG", new File(root, "logs/uzdoom.log").getAbsolutePath());
     }
 
+    /**
+     * SDL turns every touch into synthetic mouse events by default, which is
+     * the only way to use the engine without touch controls - but it also means
+     * a finger on the screen drags the view. The launcher makes that a switch;
+     * SDL reads these hints when the video subsystem comes up, so they have to
+     * be in the environment before the native thread starts.
+     */
+    public static void applyInputEnvironment(boolean touchAsMouse) {
+        String value = touchAsMouse ? "1" : "0";
+        setEnv("SDL_TOUCH_MOUSE_EVENTS", value);
+        setEnv("SDL_MOUSE_TOUCH_EVENTS", value);
+    }
+
     private static void setEnv(String name, String value) {
         try {
             Os.setenv(name, value, true);
