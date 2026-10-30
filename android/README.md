@@ -18,7 +18,7 @@ keyboard (or a gamepad) are assumed. Everything in-game is the stock UZDoom UI.
 | **Render scale** | 25-200 % of the screen. Anything other than "native" is applied as `+vid_scalemode 5` with computed `vid_scale_customwidth/height`. |
 | **Custom resolution** | Absolute width x height, or one tap to copy the current screen size. |
 | **Launch arguments** | Free-form text field, appended after the generated arguments. The field shows exactly what the engine's own parser will see (space separated, double quotes honoured). |
-| **"Add file to arguments"** | Opens a document picker filtered to `*/*` - any file, not just WADs. If the file has a real path (normal case for shared storage) that path is appended as-is; otherwise it is copied into `mods/` first and that path is added. |
+| **"Add file to arguments"** | Opens a document picker filtered to `*/*` - any file, not just WADs, and no extension is filtered anywhere. What the file *is* decides what happens: a text file whose lines are arguments (`-file x.pk3`, `+map map01`, `#`/`;`/`//` for comments) is inlined as a launch config, anything else is appended as `-file <path>`. Files without a real path are copied into `mods/` first. |
 | **Engine log** | The native layer mirrors stdout/stderr into logcat *and* `logs/uzdoom.log`. "Share engine log" sends it anywhere. |
 | **Reset configuration** | Deletes `config/uzdoom/uzdoom.ini` so the engine starts from defaults again. |
 
@@ -86,6 +86,27 @@ cd android
 Or open `android/` in Android Studio and hit Run.
 
 Only `arm64-v8a` is built - the engine is 64-bit only.
+
+### Installing the APK built by CI
+
+Every push to `trunk` or to a work branch builds an APK; the run is at
+*Actions -> Android APK*, and the file is the artifact `uzdroid-apk-<run number>`
+(`app-release.apk`, ~37 MB). Download it, then either copy it to the device and
+open it (allow "install unknown apps" for the browser/file manager), or:
+
+```bash
+adb install -r app-release.apk
+```
+
+The run overview itself reports what was built (`::notice::` lines): APK size,
+the number of `arm64-v8a` libraries and the signing certificate DN. With the
+keystore secrets set it reads `CN=UZDroid, C=IT`; if it says
+`CN=Android Debug` the secrets were not picked up.
+
+On the first start the app asks for *All files access* - without it the data
+folder falls back to `Android/data/org.uzdoom.uzdroid/files/UZDroid`, which
+works but is invisible to most file managers. Then drop an IWAD into
+`Documents/UZDroid/iwads/` and pick it in the list.
 
 ### 3b. Let GitHub build it
 
