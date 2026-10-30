@@ -94,3 +94,9 @@ To build UZDoom from source, please see UZDoom's GitHub [wiki][gh_wiki] for a fu
 
 [badge_trans_games]: https://hosted.weblate.org/widget/doom-engine-games/svg-badge.svg
 [status_trans_games]: https://hosted.weblate.org/engage/doom-engine-games/
+
+## About port
+
+This is a (currently) Work In Progress Android-native UZDoom port that tries to create both user-friendly envirovement and expansive customisation that can give just the edge.
+
+As of currently, i still personally recommend using OpenTouchGaming's UZDoom port, which is bundled in Delta Touch. It's paid, yes, but it's currently best option one can have to run UZDoom with user-friendly envirovement. This port is rough and vibecoded, former which will stay so for a REALLY long while, so i'm suggesting better alternatives.
