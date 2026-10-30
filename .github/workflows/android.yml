@@ -205,13 +205,25 @@ jobs:
           echo "### APKs" >> "$GITHUB_STEP_SUMMARY"
           for apk in "${apks[@]}"; do
             size="$(du -h "$apk" | cut -f1)"
+            bytes="$(stat -c %s "$apk")"
             echo "- \`$(basename "$apk")\` - $size" >> "$GITHUB_STEP_SUMMARY"
-            echo "$size  $apk"
+            # A notice is visible in the run overview, which is handy when the
+            # artifact is not accessible.
+            echo "::notice::$(basename "$apk"): $size ($bytes bytes)"
+            libs="$(unzip -l "$apk" 2>/dev/null | grep -c 'lib/arm64-v8a/.*\.so' || true)"
+            biggest="$(unzip -l "$apk" 2>/dev/null | grep 'lib/arm64-v8a/.*\.so' | sort -k1 -n | tail -3 | awk '{printf "%s(%dKB) ", $4, $1/1024}' || true)"
+            echo "::notice::native libraries: ${libs:-0} -> ${biggest:-none}"
           done
           signer="$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1 || true)"
           if [ -n "$signer" ]; then
+            certs="$("$signer" verify --print-certs "${apks[0]}" 2>&1 | grep -i 'certificate DN\|Signer #1' | head -3 || true)"
             echo "### Signing" >> "$GITHUB_STEP_SUMMARY"
-            "$signer" verify --print-certs "${apks[0]}" 2>&1 | head -4 | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY" || true
+            printf '%s\n' "$certs" | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
+            case "$certs" in
+              *"Android Debug"*) echo "::warning::APK is signed with the debug key - the keystore secrets did not take effect" ;;
+              *CERTIFICATE*|*certificate*) echo "::notice::signer: $(printf '%s' "$certs" | tr '\n' ' ' | cut -c1-200)" ;;
+              *) echo "::notice::signer report: $(printf '%s' "$certs" | tr '\n' ' ' | cut -c1-200)" ;;
+            esac
           fi
 
       - name: Upload APK

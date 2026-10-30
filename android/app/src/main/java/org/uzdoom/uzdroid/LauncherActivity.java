@@ -302,6 +302,20 @@ public class LauncherActivity extends AppCompatActivity {
         }
 
         Uri uri = data.getData();
+        String current = etArgs.getText().toString().trim();
+
+        // Any file can be picked; what it is decides what happens. A text file
+        // holding argument lines is inlined as a launch config, everything else
+        // becomes "-file <path>".
+        LaunchConfig.Sniffed sniffed = sniff(uri);
+        if (sniffed.config) {
+            etArgs.setText(current.isEmpty() ? sniffed.args : current + " " + sniffed.args);
+            etArgs.setSelection(etArgs.getText().length());
+            persistFromControls();
+            Toast.makeText(this, R.string.applied_config, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         String path = resolvePath(uri);
 
         if (path == null) {
@@ -313,11 +327,20 @@ public class LauncherActivity extends AppCompatActivity {
             return;
         }
 
-        String current = etArgs.getText().toString().trim();
-        String addition = LaunchArgs.quote(path);
-        etArgs.setText(current.isEmpty() ? addition : current + " " + addition);
+        etArgs.setText(LaunchConfig.appendFile(current, path));
         etArgs.setSelection(etArgs.getText().length());
         persistFromControls();
+    }
+
+    private LaunchConfig.Sniffed sniff(Uri uri) {
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) {
+                return new LaunchConfig.Sniffed(false, "");
+            }
+            return LaunchConfig.sniff(in);
+        } catch (IOException | SecurityException e) {
+            return new LaunchConfig.Sniffed(false, "");
+        }
     }
 
     /**

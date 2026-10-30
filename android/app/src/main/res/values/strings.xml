@@ -30,7 +30,8 @@
     <string name="section_args">Launch arguments</string>
     <string name="args_hint">-file mod.pk3 +vid_fps 1</string>
     <string name="add_file">Add file to arguments…</string>
-    <string name="add_file_hint">Appends -file &lt;path&gt; for any file you pick. Files that are not reachable through a plain path are copied into mods/ first.</string>
+    <string name="add_file_hint">Any file can be picked. Text files whose lines are engine arguments are inlined as a launch config; everything else is appended as -file &lt;path&gt;. Files that are not reachable through a plain path are copied into mods/ first.</string>
+    <string name="applied_config">Launch arguments applied from the file.</string>
 
     <!-- Data -->
     <string name="section_data">Data</string>
