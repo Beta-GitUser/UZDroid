@@ -23,7 +23,9 @@
 
 #include "sdl_include.h"
 #include <cmath>
+#include <ctype.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "basics.h"
 #include "c_cvars.h"
@@ -637,6 +639,45 @@ const SDLInputJoystick::DefaultAxisConfig SDLInputJoystick::DefaultControllerAxe
 	{JOYDEADZONE_DEFAULT, JOYSENSITIVITY_DEFAULT, JOYTHRESH_TRIGGER, JOYCURVE_DEFAULT},
 };
 
+#ifdef __ANDROID__
+static bool ContainsNoCase(const char *text, const char *needle)
+{
+	const size_t length = strlen(needle);
+	if (length == 0)
+		return false;
+
+	for (const char *p = text; *p != '\0'; ++p)
+	{
+		size_t i = 0;
+		while (i < length && p[i] != '\0'
+			&& tolower((unsigned char)p[i]) == tolower((unsigned char)needle[i]))
+		{
+			++i;
+		}
+		if (i == length)
+			return true;
+	}
+	return false;
+}
+
+/**
+ * True for the phone's motion sensors, which SDL may expose as joysticks.
+ * Matched on the name because that is all SDL tells us about them, and no real
+ * gamepad is called a sensor.
+ */
+static bool IsSensorDeviceName(const FString &name)
+{
+	const char *text = name.GetChars();
+
+	return ContainsNoCase(text, "accelerometer")
+		|| ContainsNoCase(text, "gyroscope")
+		|| ContainsNoCase(text, "gyro")
+		|| ContainsNoCase(text, "magnetometer")
+		|| ContainsNoCase(text, "barometer")
+		|| ContainsNoCase(text, "sensor");
+}
+#endif
+
 class SDLInputJoystickManager
 {
 public:
@@ -654,6 +695,19 @@ public:
 			SDLInputJoystick *device = new SDLInputJoystick(i);
 			if(device->IsValid())
 			{
+#ifdef __ANDROID__
+				// Android phones can hand SDL their accelerometer/gyro as if it
+				// were a joystick. Its axes rest at a deflection that follows
+				// gravity, which reads as "somebody is holding a direction" and
+				// makes the menu scroll on its own. Those are not gamepads.
+				FString devicename = device->GetName();
+				if (IsSensorDeviceName(devicename))
+				{
+					Printf("IN device %d: '%s' ignored (sensor, not a gamepad)\n", i, devicename.GetChars());
+					delete device;
+					continue;
+				}
+#endif
 				device->PrintDeviceInfo();
 				Joysticks.Push(device);
 			}

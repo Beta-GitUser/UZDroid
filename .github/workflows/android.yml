@@ -155,6 +155,14 @@ jobs:
           UZDROID_CCACHE: '0'
         run: .github/scripts/ci-run.sh "$GITHUB_WORKSPACE/pk3.log" ./android/scripts/build-host-assets.sh
 
+      # Sound, but not worth failing the build over: without libopenal.so the
+      # engine runs silently and says so in its log.
+      - name: Build openal-soft (optional)
+        continue-on-error: true
+        env:
+          UZDROID_CCACHE: '0'
+        run: ./android/scripts/build-openal.sh
+
       # The engine is ~1500 translation units. A configure on its own takes a
       # minute and catches build-wiring mistakes long before the build does.
       - name: CMake configure smoke test
