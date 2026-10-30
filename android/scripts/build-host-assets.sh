@@ -29,15 +29,18 @@ cmake -S "$REPO_ROOT" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
     -DUZDOOM_HOST_ASSETS_ONLY=ON
 
-PK3_TARGETS=(uzdoom_pk3 game_support_pk3 lights_pk3)
+# Build everything this configuration has: the PK3 targets *and* the host tools
+# (re2c, lemon, zipdir). The PK3s only depend on zipdir, but the Android build
+# needs re2c and lemon to generate two engine sources, so they must exist too.
+echo "== Building host tools and engine data"
+cmake --build "$BUILD_DIR" --parallel "$(nproc 2>/dev/null || echo 4)"
 
-# These two are only generated when non-free assets are enabled (the default).
-if grep -q '^BUILD_NONFREE:BOOL=ON' "$BUILD_DIR/CMakeCache.txt"; then
-    PK3_TARGETS+=(brightmaps_pk3 game_widescreen_gfx_pk3)
-fi
-
-echo "== Building: ${PK3_TARGETS[*]}"
-cmake --build "$BUILD_DIR" --target "${PK3_TARGETS[@]}" --parallel "$(nproc 2>/dev/null || echo 4)"
+for tool in re2c lemon zipdir; do
+    if [ ! -x "$BUILD_DIR/tools/$tool/$tool" ]; then
+        echo "error: host tool $tool was not built in $BUILD_DIR/tools/$tool" >&2
+        exit 1
+    fi
+done
 
 # re2c/lemon/zipdir are exported here so the NDK build can run them.
 if [ ! -f "$BUILD_DIR/ImportExecutables.cmake" ]; then
