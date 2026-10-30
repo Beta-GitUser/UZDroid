@@ -22,7 +22,7 @@
 **
 */
 
-#include <SDL2/SDL.h>
+#include "sdl_include.h"
 #include <signal.h>
 
 #include "c_console.h"

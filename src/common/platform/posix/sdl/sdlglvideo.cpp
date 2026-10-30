@@ -24,10 +24,18 @@
 
 // HEADER FILES ------------------------------------------------------------
 
-#include <SDL2/SDL.h>
+#include "sdl_include.h"
 
 #ifdef HAVE_VULKAN
-#include <SDL2/SDL_vulkan.h>
+#if defined(__has_include)
+#	if __has_include(<SDL2/SDL_vulkan.h>)
+#		include <SDL2/SDL_vulkan.h>
+#	else
+#		include <SDL_vulkan.h>
+#	endif
+#else
+#	include <SDL2/SDL_vulkan.h>
+#endif
 #include <zvulkan/vulkanbuilders.h>
 #include <zvulkan/vulkandevice.h>
 #include <zvulkan/vulkaninstance.h>

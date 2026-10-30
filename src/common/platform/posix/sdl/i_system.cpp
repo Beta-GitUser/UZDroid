@@ -22,7 +22,7 @@
 **
 */
 
-#include <SDL2/SDL.h>
+#include "sdl_include.h"
 
 #include <dirent.h>
 #include <fcntl.h>

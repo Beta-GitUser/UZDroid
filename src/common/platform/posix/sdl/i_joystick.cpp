@@ -21,7 +21,7 @@
 **
 */
 
-#include <SDL2/SDL.h>
+#include "sdl_include.h"
 #include <cmath>
 #include <stdio.h>
 
