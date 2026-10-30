@@ -52,6 +52,12 @@ if(ANDROID)
 	# The NDK ships no OpenMP runtime, and FindOpenMP cheerfully finds the
 	# build machine's libomp instead, which then fails to link.
 	set(NO_OPENMP ON CACHE BOOL "" FORCE)
+
+	# Nothing is installed when building the APK - everything ends up in the
+	# assets or the jniLibs folder. Skipping install rules also keeps third
+	# party export sets valid, e.g. freetype's, which would otherwise require
+	# our internal bz2 target to be exported as well.
+	set(CMAKE_SKIP_INSTALL_RULES ON CACHE BOOL "" FORCE)
 endif()
 
 set(CMAKE_CXX_STANDARD 20)
