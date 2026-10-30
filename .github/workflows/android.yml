@@ -167,7 +167,8 @@ jobs:
             -DANDROID_PLATFORM=android-24 \
             -DANDROID_STL=c++_static \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DUZDOOM_SDL2_SOURCE_DIR="$GITHUB_WORKSPACE/android/deps/SDL"
+            -DUZDOOM_SDL2_SOURCE_DIR="$GITHUB_WORKSPACE/android/deps/SDL" \
+            -DIMPORT_EXECUTABLES="$GITHUB_WORKSPACE/build-host-assets/ImportExecutables.cmake"
           SH
           .github/scripts/ci-run.sh "$GITHUB_WORKSPACE/configure.log" bash /tmp/configure.sh
 

@@ -22,6 +22,18 @@ def assetsDir = file('src/main/assets')
 def requiredAssets = ['uzdoom.pk3', 'game_support.pk3', 'brightmaps.pk3', 'lights.pk3',
                       'game_widescreen_gfx.pk3']
 
+// re2c and lemon run on the build machine to generate two engine sources, so
+// they cannot be part of the NDK build. scripts/build-host-assets.sh builds
+// them and leaves this export file behind; the NDK build imports the
+// executables from it (-DIMPORT_EXECUTABLES).
+def hostToolsFile = new File(rootProject.projectDir, '../build-host-assets/ImportExecutables.cmake')
+def hostToolsPath = hostToolsFile.absolutePath.replace('\\', '/')
+
+if (!hostToolsFile.exists()) {
+    logger.warn("Host tools not found at ${hostToolsPath}. " +
+            "Run android/scripts/build-host-assets.sh (the hostAssets task does it automatically).")
+}
+
 // ---------------------------------------------------------------------------
 // Release signing
 //
@@ -79,7 +91,8 @@ android {
 
         externalNativeBuild {
             cmake {
-                arguments "-DUZDOOM_SDL2_SOURCE_DIR=${sdl2Path}"
+                arguments "-DUZDOOM_SDL2_SOURCE_DIR=${sdl2Path}",
+                          "-DIMPORT_EXECUTABLES=${hostToolsPath}"
                 if (useCcache) {
                     arguments '-DCMAKE_C_COMPILER_LAUNCHER=ccache',
                               '-DCMAKE_CXX_COMPILER_LAUNCHER=ccache'
@@ -154,7 +167,7 @@ tasks.register('hostAssets', Exec) {
     workingDir rootProject.projectDir
     commandLine 'bash', 'scripts/build-host-assets.sh'
     onlyIf {
-        !requiredAssets.every { new File(assetsDir, it).exists() }
+        !requiredAssets.every { new File(assetsDir, it).exists() } || !hostToolsFile.exists()
     }
     ignoreExitValue = true
     doLast {

@@ -39,6 +39,20 @@ fi
 echo "== Building: ${PK3_TARGETS[*]}"
 cmake --build "$BUILD_DIR" --target "${PK3_TARGETS[@]}" --parallel "$(nproc 2>/dev/null || echo 4)"
 
+# re2c/lemon/zipdir are exported here so the NDK build can run them.
+if [ ! -f "$BUILD_DIR/ImportExecutables.cmake" ]; then
+    echo "error: $BUILD_DIR/ImportExecutables.cmake was not generated" >&2
+    exit 1
+fi
+
+# CMake exports the locations per configuration (IMPORTED_LOCATION_RELEASE),
+# but the APK can be built as Debug or RelWithDebInfo, which would then find no
+# location at all. One generic location is what we want: they are host tools,
+# their configuration is irrelevant.
+sed -i 's/IMPORTED_LOCATION_RELEASE/IMPORTED_LOCATION/g' "$BUILD_DIR/ImportExecutables.cmake"
+
+echo "== Host tools exported to $BUILD_DIR/ImportExecutables.cmake"
+
 echo "== Copying PK3s into the APK assets"
 shopt -s nullglob
 copied=0

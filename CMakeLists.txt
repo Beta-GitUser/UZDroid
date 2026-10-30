@@ -534,6 +534,11 @@ if(UZDOOM_HOST_ASSETS_ONLY)
 	add_subdirectory( wadsrc_lights )
 	add_subdirectory( wadsrc_extra )
 	add_subdirectory( wadsrc_widepix )
+
+	# re2c and lemon generate source files the engine needs, but they are host
+	# programs: a cross build cannot produce them. Export where this build put
+	# them so that the Android build can pass -DIMPORT_EXECUTABLES=<this file>.
+	export(TARGETS ${CROSS_EXPORTS} FILE "${CMAKE_BINARY_DIR}/ImportExecutables.cmake" )
 	return()
 endif()
 
