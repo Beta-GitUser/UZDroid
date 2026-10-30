@@ -133,12 +133,14 @@ key, so pick one and stay with it. For local signed builds, put the same four
 values in `android/keystore.properties` (`storeFile`, `storePassword`,
 `keyAlias`, `keyPassword`); it is gitignored.
 
-### 4. Sound (optional)
+### 4. Sound
 
-The engine has exactly one audio backend: OpenAL, `dlopen()`ed at runtime. Build
-[openal-soft](https://github.com/kcat/openal-soft) for `arm64-v8a` and drop
-`libopenal.so` into `android/app/src/main/jniLibs/arm64-v8a/`. Without it the
-engine runs silently but otherwise fine.
+The engine has exactly one audio backend: OpenAL, `dlopen()`ed at runtime.
+`fetch-deps.sh` pulls [openal-soft](https://github.com/kcat/openal-soft) and
+`build-openal.sh` builds it for `arm64-v8a` into
+`android/app/src/main/jniLibs/arm64-v8a/libopenal.so`, so the APK has sound out
+of the box. If that step fails the build still succeeds and the engine runs
+silently - it says so in its log ("Sound init failed. Using nosound.").
 
 ---
 
@@ -166,6 +168,11 @@ Handled by `-DANDROID` in the engine's CMake, no separate build tree:
 ## Known gaps
 
 * No touch controls, no on-screen keyboard, no gyro.
+* The phone's accelerometer arrives through SDL as a three-axis joystick
+  ("Android Accelerometer"), which reads as a permanently held direction. That
+  hint is off and sensor-named devices are skipped, so tilt input does nothing
+  - which is what an unanchored axis should do until there is a reason to use
+  it.
 * The in-engine launcher (`-launcher`) renders through ZWidget/SDL and works with
   a mouse, but its widgets are desktop-sized.
 * `MANAGE_EXTERNAL_STORAGE` is required for `Documents/UZDroid`; Google Play does
