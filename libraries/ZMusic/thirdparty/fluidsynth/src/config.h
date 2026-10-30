@@ -123,7 +123,9 @@
 #endif
 
 /* Define to 1 if you have the <windows.h> header file. */
+#if defined(_WIN32) || defined(__CYGWIN__)
 #define HAVE_WINDOWS_H 1
+#endif
 
 /* Define to 1 if you have the <getopt.h> header file. */
 /* #undef HAVE_GETOPT_H */
@@ -272,8 +274,9 @@
 /* Define to 1 if you have the socklen_t type. */
 #define HAVE_SOCKLEN_T 1
 
-/* Define if using glib stubs instead of real glib. */
-#ifdef _WIN32
+/* Define if using glib stubs instead of real glib. Windows has no glib at all,
+ * and Android's NDK does not ship one either, so both use the stubs. */
+#if defined(_WIN32) || defined(__ANDROID__)
 #define WITH_GLIB_STUBS
 #endif
 

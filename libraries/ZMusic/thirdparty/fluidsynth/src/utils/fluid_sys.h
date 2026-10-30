@@ -140,6 +140,11 @@ typedef gintptr  intptr_t;
 #include <wchar.h>
 #endif
 
+/* Non-Windows targets with stubs (Android) get the pthread based ones. */
+#if defined(WITH_GLIB_STUBS) && !defined(_WIN32)
+#include "posix_glibstubs.h"
+#endif
+
 #if defined(_WIN32) && HAVE_WINDOWS_H
 #include <winsock2.h>
 #include <ws2tcpip.h>	/* Provides also socklen_t */
@@ -178,7 +183,7 @@ typedef gintptr  intptr_t;
 #include <gmodule.h>
 #endif
 
-#ifndef WIN32
+#if !defined(WIN32) && !defined(WITH_GLIB_STUBS)
 #include <glib/gstdio.h>
 #endif
 

@@ -106,6 +106,14 @@ if ( WIN32 )
         utils/win32_glibstubs.c
         utils/win32_glibstubs.h
     )
+elseif ( ANDROID )
+    # [UZDoom] The NDK does not ship glib, so Android uses the pthread based
+    # stubs instead of the real thing.
+    set( fluidsynth_SOURCES
+        ${fluidsynth_SOURCES}
+        utils/posix_glibstubs.c
+        utils/posix_glibstubs.h
+    )
 endif ( WIN32 )
 
 set ( public_HEADERS
@@ -154,7 +162,7 @@ target_include_directories ( fluidsynth PRIVATE
 )
 
 
-if (NOT WIN32)
+if (NOT WIN32 AND NOT ANDROID)
    find_package(PkgConfig REQUIRED)
    pkg_search_module(GLIB REQUIRED glib-2.0)
    target_include_directories ( fluidsynth PUBLIC ${GLIB_INCLUDE_DIRS} )

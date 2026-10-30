@@ -48,6 +48,10 @@ if(ANDROID)
 	# libvpx is only used for .ivf (VP8/VP9) cutscenes and would otherwise be a
 	# hard cross-compilation dependency. It is optional in Android builds.
 	set(NO_LIBVPX ON CACHE BOOL "" FORCE)
+
+	# The NDK ships no OpenMP runtime, and FindOpenMP cheerfully finds the
+	# build machine's libomp instead, which then fails to link.
+	set(NO_OPENMP ON CACHE BOOL "" FORCE)
 endif()
 
 set(CMAKE_CXX_STANDARD 20)
