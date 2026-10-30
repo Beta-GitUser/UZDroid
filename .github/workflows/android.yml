@@ -180,6 +180,17 @@ jobs:
           SH
           .github/scripts/ci-run.sh "$GITHUB_WORKSPACE/configure.log" bash /tmp/configure.sh
 
+      # javac takes a minute, the native build takes ten. Catch Java mistakes
+      # before the expensive part starts.
+      - name: Java compile check
+        working-directory: android
+        run: |
+          cat > /tmp/javac.sh <<'SH'
+          set -euo pipefail
+          gradle --no-daemon --console=plain :app:compileReleaseJavaWithJavac
+          SH
+          ../.github/scripts/ci-run.sh "$GITHUB_WORKSPACE/javac.log" bash /tmp/javac.sh
+
       - name: Decode keystore
         if: env.KEYSTORE_BASE64 != ''
         run: |

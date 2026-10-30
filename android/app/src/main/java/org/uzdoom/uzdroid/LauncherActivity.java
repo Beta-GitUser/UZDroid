@@ -357,10 +357,9 @@ public class LauncherActivity extends AppCompatActivity {
                 error = e.getMessage();
             }
 
+            final String failure = error;
             CrashLog.append(getApplicationContext(),
                     failure == null ? "engine data ready" : "engine data failed: " + failure);
-
-            final String failure = error;
             runOnUiThread(() -> {
                 setBusy(false);
                 if (failure != null) {
@@ -610,6 +609,33 @@ public class LauncherActivity extends AppCompatActivity {
         } catch (ActivityNotFoundException e) {
             Toast.makeText(this, TextUtils.join("\n", paths), Toast.LENGTH_LONG).show();
         }
+    }
+
+    /** Every log and crash file that exists, newest first. */
+    private List<File> logFiles() {
+        List<File> files = new ArrayList<>();
+
+        File[] publicFiles = new File(root, "logs").listFiles();
+        if (publicFiles != null) {
+            java.util.Arrays.sort(publicFiles, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+            for (File file : publicFiles) {
+                if (file.isFile()) {
+                    files.add(file);
+                }
+            }
+        }
+
+        File[] privateFiles = getFilesDir().listFiles();
+        if (privateFiles != null) {
+            java.util.Arrays.sort(privateFiles, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+            for (File file : privateFiles) {
+                if (file.isFile()) {
+                    files.add(file);
+                }
+            }
+        }
+
+        return files;
     }
 
     private void confirmResetConfig() {
