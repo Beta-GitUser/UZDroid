@@ -98,6 +98,9 @@ public class LauncherActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // Coming back from the game (or from a permission screen) should always
+        // leave the launcher in a usable state.
+        setBusy(false);
         refresh();
     }
 
@@ -359,12 +362,16 @@ public class LauncherActivity extends AppCompatActivity {
     private String importFile(Uri uri) {
         String name = queryDisplayName(uri);
         if (TextUtils.isEmpty(name)) {
-            name = "imported-" + System.currentTimeMillis() + ".wad";
+            // Any file at all can be added, so do not invent an extension.
+            name = "imported-" + System.currentTimeMillis();
         }
         // Never let the provider dictate a path.
         name = new File(name).getName();
 
         File modsDir = new File(root, "mods");
+        if (!modsDir.isDirectory() && !modsDir.mkdirs()) {
+            return null;
+        }
         File destination = new File(modsDir, name);
 
         try (InputStream in = getContentResolver().openInputStream(uri);
@@ -403,20 +410,25 @@ public class LauncherActivity extends AppCompatActivity {
     // Data folder helpers
     // -----------------------------------------------------------------------
 
+    /**
+     * Hands the data folder to whatever file manager understands
+     * {@code resource/folder}. Nothing ships with Android that does, so the
+     * usual outcome is the path being shown instead - which is still the useful
+     * part, because it is a real, browsable folder.
+     */
     private void openDataFolder() {
         File folder = new File(root, "data");
         if (!folder.isDirectory()) {
             folder = root;
         }
 
-        Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", folder);
-        Intent intent = new Intent(Intent.ACTION_VIEW);
-        intent.setDataAndType(uri, "resource/folder");
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-
         try {
+            Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", folder);
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(uri, "resource/folder");
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(intent);
-        } catch (ActivityNotFoundException e) {
+        } catch (ActivityNotFoundException | IllegalArgumentException e) {
             Toast.makeText(this, folder.getAbsolutePath(), Toast.LENGTH_LONG).show();
         }
     }

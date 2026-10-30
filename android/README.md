@@ -68,11 +68,13 @@ source tree.)
 ```
 
 This does a host-native CMake configure with `-DUZDOOM_HOST_ASSETS_ONLY=ON`,
-builds `zipdir` plus the PK3 targets and copies `uzdoom.pk3`,
+builds `zipdir` plus the PK3 targets and copies `uzdoom.pk3` (16 MB),
 `game_support.pk3`, `lights.pk3`, `brightmaps.pk3`,
 `game_widescreen_gfx.pk3`, the soundfont and the FM banks into
-`android/app/src/main/assets/`. Gradle runs it automatically if the assets are
-missing.
+`android/app/src/main/assets/` - about 25 MB of APK contents. It takes well
+under a minute: the host-assets build only compiles `miniz`, `bzip2`, `lzma`
+and the three host tools, not the engine. Gradle runs it automatically if the
+assets are missing.
 
 ### 3. Build the APK
 
@@ -111,6 +113,9 @@ Handled by `-DANDROID` in the engine's CMake, no separate build tree:
   renderer is the default backend on Android and `gl_es` defaults to true.
 * libvpx is optional (`NO_LIBVPX`): without it, `.ivf` cutscenes report an error
   instead of playing. Nothing else changes.
+* `gameconfigfile.cpp` defaults its search path to `$PROGDIR` plus `$PROGDIR/..`,
+  `../iwads` and `../mods` instead of the FHS locations, and `I_DetectOS()`
+  skips `/etc/os-release` (Android has none) and reports the kernel instead.
 
 ## Known gaps
 
@@ -120,4 +125,9 @@ Handled by `-DANDROID` in the engine's CMake, no separate build tree:
 * `MANAGE_EXTERNAL_STORAGE` is required for `Documents/UZDroid`; Google Play does
   not allow it for apps like this one.
 * No Vulkan backend, no software renderer, no `.ivf` cutscenes (yet).
-* First launch unpacks ~20-40 MB of assets into `engine/`.
+* First launch unpacks ~25 MB of assets into `engine/`. Files that already
+  exist with a non-zero size are left alone, so this only happens once (or
+  after the folder is deleted).
+* Audio focus is not handled: other apps keep playing while the game runs. SDL
+  pauses/resumes the OpenAL device with the activity lifecycle, which is enough
+  to not lose sound on a phone call.

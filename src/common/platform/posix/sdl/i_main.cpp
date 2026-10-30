@@ -132,6 +132,9 @@ FString I_DetectOS()
 {
 	FString operatingSystem;
 
+#if !defined(__ANDROID__)
+	// No /etc/os-release on Android, and spawning a shell there is both
+	// pointless and slower than just reporting the kernel.
 	const char *paths[] = {"/etc/os-release", "/usr/lib/os-release"};
 
 	for (const char *path : paths)
@@ -163,6 +166,7 @@ FString I_DetectOS()
 		pclose(proc);
 		break;
 	}
+#endif
 
 	struct utsname unameInfo;
 

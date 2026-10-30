@@ -32,7 +32,7 @@ cmake -S "$REPO_ROOT" -B "$BUILD_DIR" \
 PK3_TARGETS=(uzdoom_pk3 game_support_pk3 lights_pk3)
 
 # These two are only generated when non-free assets are enabled (the default).
-if grep -q "BUILD_NONFREE" "$REPO_ROOT/wadsrc_bm/CMakeLists.txt"; then
+if grep -q '^BUILD_NONFREE:BOOL=ON' "$BUILD_DIR/CMakeCache.txt"; then
     PK3_TARGETS+=(brightmaps_pk3 game_widescreen_gfx_pk3)
 fi
 

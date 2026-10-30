@@ -112,7 +112,7 @@ static void CollectDefaultSearchPaths()
 	M_GetMacSearchDirectories(user_docs, user_app_support, local_app_support);
 #endif
 
-#if defined(__HAIKU__) || ( defined(__unix__) && !defined(__APPLE__) )
+#if defined(__HAIKU__) || ( defined(__unix__) && !defined(__APPLE__) && !defined(__ANDROID__) )
 
 #   ifdef __HAIKU__
 #       define DEFAULT_SHARE_DIR "/boot/system/data"
@@ -132,10 +132,20 @@ static void CollectDefaultSearchPaths()
 	DefaultSearchPaths.Push(local_app_support);
 	DefaultSearchPaths.Push("$PROGDIR");
 
-#elif !defined(__unix__) && !defined(__HAIKU__)
+#elif !defined(__unix__) && !defined(__HAIKU__) && !defined(__ANDROID__)
 
 	DefaultSearchPaths.Push("$HOME");
 	DefaultSearchPaths.Push("$PROGDIR");
+
+#elif defined(__ANDROID__)
+
+	// Android has no FHS. UZDOOM_PROGDIR points at <root>/engine, where the
+	// PK3s extracted from the APK assets live; everything the user drops in
+	// (IWADs, mods) sits next to it in the shared "Documents/UZDroid" folder.
+	DefaultSearchPaths.Push("$PROGDIR");
+	DefaultSearchPaths.Push("$PROGDIR/..");
+	DefaultSearchPaths.Push("$PROGDIR/../iwads");
+	DefaultSearchPaths.Push("$PROGDIR/../mods");
 
 #else
 
