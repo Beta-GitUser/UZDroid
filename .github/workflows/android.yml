@@ -48,6 +48,8 @@ jobs:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       CCACHE_MAXSIZE: 2G
       CCACHE_COMPRESS: '1'
+      # The NDK is pinned in android/app/build.gradle; keep both in sync.
+      ANDROID_NDK_VERSION: '27.0.12077973'
       # Points at the file the "Decode keystore" step writes. When the secret is
       # absent the file is absent too and gradle falls back to debug signing.
       UZDROID_KEYSTORE_FILE: ${{ github.workspace }}/release.jks
@@ -55,6 +57,7 @@ jobs:
       UZDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       UZDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      VARIANT: ${{ inputs.variant }}
 
     steps:
       - uses: actions/checkout@v5
@@ -76,30 +79,41 @@ jobs:
 
       - name: Install host tools
         run: |
+          cat > /tmp/host-tools.sh <<'SH'
+          set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq ccache ninja-build python3
           cmake --version | head -1
           ccache --version | head -1
+          SH
+          .github/scripts/ci-run.sh "$GITHUB_WORKSPACE/host-tools.log" bash /tmp/host-tools.sh
 
       - name: Prepare Android SDK, NDK and CMake
         run: |
+          cat > /tmp/sdk.sh <<'SH'
           set -euo pipefail
           sdk="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
 
-          # AGP asks for this exact cmake version.
-          if [ ! -d "$sdk/cmake/3.22.1" ]; then
-            yes | sdkmanager --install "cmake;3.22.1" > /dev/null
-          fi
+          # sdkmanager closes its input early, which makes `yes` die of SIGPIPE;
+          # under pipefail that would abort the step, hence the || true.
+          install_pkg() {
+              echo "installing sdk package $1"
+              { yes 2>/dev/null || true; } | sdkmanager --install "$1" > /dev/null 2>&1 || true
+          }
 
-          # Any recent NDK will do; AGP picks the newest installed one.
-          if ! ls -d "$sdk"/ndk/* > /dev/null 2>&1; then
-            yes | sdkmanager --install "ndk;27.0.12077973" > /dev/null
-          fi
-          ndk="$(ls -d "$sdk"/ndk/* | sort -V | tail -1)"
-          echo "NDK_ROOT=$ndk" >> "$GITHUB_ENV"
-          echo "Using NDK $ndk"
-          sdkmanager --list_installed | grep -E 'ndk;|cmake;|platforms;android-3|build-tools' || true
+          # AGP asks for this exact cmake version (see app/build.gradle).
+          [ -d "$sdk/cmake/3.22.1" ] || install_pkg "cmake;3.22.1"
+          [ -d "$sdk/ndk/$ANDROID_NDK_VERSION" ] || install_pkg "ndk;$ANDROID_NDK_VERSION"
+
+          echo "--- installed ---"
+          ls -d "$sdk"/cmake/* "$sdk"/ndk/* 2>/dev/null || true
+
+          [ -d "$sdk/cmake/3.22.1" ]   || { echo "cmake 3.22.1 is missing"; exit 1; }
+          [ -d "$sdk/ndk/$ANDROID_NDK_VERSION" ] || { echo "NDK $ANDROID_NDK_VERSION is missing"; exit 1; }
+          echo "NDK_ROOT=$sdk/ndk/$ANDROID_NDK_VERSION" >> "$GITHUB_ENV"
+          SH
+          .github/scripts/ci-run.sh "$GITHUB_WORKSPACE/sdk.log" bash /tmp/sdk.sh
 
       - name: Version stamp
         run: |
@@ -108,15 +122,15 @@ jobs:
             echo "UZDROID_VERSION_NAME=0.1.${{ github.run_number }}"
           } >> "$GITHUB_ENV"
 
-      # Host-native, and quick - but this is what produces the APK contents, so
-      # it gets its own step name when it breaks.
+      # Host-native and quick, but this is what fills the APK, so its failures
+      # get their own annotation.
       - name: Fetch SDL2
-        run: ./android/scripts/fetch-deps.sh
+        run: .github/scripts/ci-run.sh "$GITHUB_WORKSPACE/sdl.log" ./android/scripts/fetch-deps.sh
 
       - name: Build engine data (PK3s)
         env:
           UZDROID_CCACHE: '0'
-        run: ./android/scripts/build-host-assets.sh
+        run: .github/scripts/ci-run.sh "$GITHUB_WORKSPACE/pk3.log" ./android/scripts/build-host-assets.sh
 
       - name: Restore ccache
         uses: actions/cache@v4
@@ -130,6 +144,7 @@ jobs:
       # minute and catches build-wiring mistakes long before the build does.
       - name: CMake configure smoke test
         run: |
+          cat > /tmp/configure.sh <<'SH'
           set -euo pipefail
           cmake -S . -B /tmp/configure-check -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="$NDK_ROOT/build/cmake/android.toolchain.cmake" \
@@ -138,6 +153,8 @@ jobs:
             -DANDROID_STL=c++_static \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DUZDOOM_SDL2_SOURCE_DIR="$GITHUB_WORKSPACE/android/deps/SDL"
+          SH
+          .github/scripts/ci-run.sh "$GITHUB_WORKSPACE/configure.log" bash -x /tmp/configure.sh
 
       - name: Decode keystore
         if: env.KEYSTORE_BASE64 != ''
@@ -148,14 +165,17 @@ jobs:
       - name: Build APK
         working-directory: android
         run: |
-          set -o pipefail
-          case "${{ inputs.variant }}" in
+          cat > /tmp/build.sh <<'SH'
+          set -euo pipefail
+          case "${VARIANT:-}" in
             debug) tasks=assembleDebug ;;
             both)  tasks="assembleDebug assembleRelease" ;;
             *)     tasks=assembleRelease ;;
           esac
-          echo "Gradle tasks: $tasks"
-          gradle --no-daemon --stacktrace --console=plain $tasks 2>&1 | tee build.log
+          echo "variant: ${VARIANT:-default} -> $tasks"
+          gradle --no-daemon --stacktrace --console=plain $tasks
+          SH
+          ../.github/scripts/ci-run.sh "$GITHUB_WORKSPACE/build.log" bash /tmp/build.sh
 
       - name: Summarise result
         if: always()
@@ -192,7 +212,12 @@ jobs:
         with:
           name: build-log-${{ github.run_number }}
           path: |
-            android/build.log
+            build.log
+            sdl.log
+            pk3.log
+            configure.log
+            sdk.log
+            host-tools.log
             android/app/.cxx/**/*.log
             android/app/.cxx/**/*.txt
           if-no-files-found: ignore

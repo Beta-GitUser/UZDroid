@@ -56,6 +56,9 @@ def useCcache = System.getenv('UZDROID_CCACHE') == '1'
 android {
     namespace 'org.uzdoom.uzdroid'
     compileSdk 35
+    // Pinned so that a newer NDK appearing on a build machine cannot silently
+    // change the toolchain. Keep in sync with .github/workflows/android.yml.
+    ndkVersion '27.0.12077973'
 
     defaultConfig {
         applicationId 'org.uzdoom.uzdroid'
