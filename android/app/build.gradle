@@ -154,6 +154,12 @@ android {
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.0'
+
+    // androidx pulls kotlin-stdlib 1.8.x, while a transitive path still drags in
+    // kotlin-stdlib-jdk7/jdk8 1.6.x. Those contain classes that were folded into
+    // kotlin-stdlib later, so dexing fails with "Duplicate class
+    // kotlin.collections.jdk8.CollectionsJDK8Kt". The BOM aligns all three.
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.9.24')
 }
 
 // ---------------------------------------------------------------------------
