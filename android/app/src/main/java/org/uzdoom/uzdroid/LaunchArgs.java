@@ -32,6 +32,11 @@ public final class LaunchArgs {
 
         addResolution(args, prefs, screenWidth, screenHeight);
 
+        if (!prefs.touchControls) {
+            // Hands the pointer back to SDL's own touch-to-mouse translation.
+            addCvar(args, "touch_enable", "0");
+        }
+
         if (!prefs.soundEnabled) {
             args.add("-nosound");
         }

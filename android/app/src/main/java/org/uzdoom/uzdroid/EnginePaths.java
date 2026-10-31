@@ -150,18 +150,6 @@ public final class EnginePaths {
         setEnv("UZDOOM_LOG", new File(root, "logs/uzdoom.log").getAbsolutePath());
     }
 
-    /**
-     * SDL turns every touch into synthetic mouse events by default, which is
-     * the only way to use the engine without touch controls - but it also means
-     * a finger on the screen drags the view. The launcher makes that a switch;
-     * SDL reads these hints when the video subsystem comes up, so they have to
-     * be in the environment before the native thread starts.
-     */
-    public static void applyInputEnvironment(boolean touchAsMouse) {
-        String value = touchAsMouse ? "1" : "0";
-        setEnv("SDL_TOUCH_MOUSE_EVENTS", value);
-        setEnv("SDL_MOUSE_TOUCH_EVENTS", value);
-    }
 
     private static void setEnv(String name, String value) {
         try {
@@ -191,15 +179,29 @@ public final class EnginePaths {
         if (!target.exists() && !target.mkdirs()) {
             throw new IOException("Unable to create " + target);
         }
-        return copyAssetTree(context.getAssets(), "", target);
+
+        // The PK3s carry the engine's own menus and defaults, so they change
+        // between builds. Copying only missing files would leave the device on
+        // the first APK it ever saw, so a version stamp decides instead.
+        String version = appVersion(context);
+        File stamp = new File(target, ".asset-version");
+        boolean stale = !version.equals(readFile(stamp));
+
+        boolean copied = copyAssetTree(context.getAssets(), "", target, stale);
+
+        if (stale) {
+            writeFile(stamp, version);
+        }
+        return copied;
     }
 
-    private static boolean copyAssetTree(AssetManager assets, String path, File target) throws IOException {
+    private static boolean copyAssetTree(AssetManager assets, String path, File target, boolean replace)
+            throws IOException {
         String[] children = assets.list(path);
 
         if (children == null || children.length == 0) {
             // Leaf entry: it is a file.
-            return copyAssetFile(assets, path, target);
+            return copyAssetFile(assets, path, target, replace);
         }
 
         if (!target.isDirectory() && !target.mkdirs() && !target.isDirectory()) {
@@ -209,13 +211,47 @@ public final class EnginePaths {
         boolean copied = false;
         for (String child : children) {
             String childPath = path.isEmpty() ? child : path + "/" + child;
-            copied |= copyAssetTree(assets, childPath, new File(target, child));
+            copied |= copyAssetTree(assets, childPath, new File(target, child), replace);
         }
         return copied;
     }
 
-    private static boolean copyAssetFile(AssetManager assets, String path, File out) throws IOException {
-        if (out.isFile() && out.length() > 0) {
+    /** versionName plus versionCode, so reinstalling any newer build refreshes. */
+    private static String appVersion(Context context) {
+        try {
+            android.content.pm.PackageInfo info = context.getPackageManager()
+                    .getPackageInfo(context.getPackageName(), 0);
+            return info.versionName + " (" + androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(info) + ")";
+        } catch (Exception e) {
+            return "unknown";
+        }
+    }
+
+    private static String readFile(File file) {
+        if (!file.isFile()) {
+            return "";
+        }
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                new java.io.FileReader(file))) {
+            String line = reader.readLine();
+            return line == null ? "" : line.trim();
+        } catch (IOException e) {
+            return "";
+        }
+    }
+
+    private static void writeFile(File file, String text) {
+        try (java.io.FileWriter writer = new java.io.FileWriter(file, false)) {
+            writer.write(text);
+            writer.write("\n");
+        } catch (IOException e) {
+            android.util.Log.w("UZDroid", "Unable to write " + file, e);
+        }
+    }
+
+    private static boolean copyAssetFile(AssetManager assets, String path, File out, boolean replace)
+            throws IOException {
+        if (!replace && out.isFile() && out.length() > 0) {
             return false;
         }
 
@@ -224,9 +260,18 @@ public final class EnginePaths {
             throw new IOException("Unable to create " + parent);
         }
 
+        // Write beside the target and rename, so an interrupted refresh cannot
+        // leave a half-written PK3 behind.
+        File temp = new File(out.getPath() + ".tmp");
         try (InputStream in = assets.open(path);
-             OutputStream os = new FileOutputStream(out)) {
+             OutputStream os = new FileOutputStream(temp)) {
             copyStream(in, os);
+        }
+
+        //noinspection ResultOfMethodCallIgnored
+        out.delete();
+        if (!temp.renameTo(out)) {
+            throw new IOException("Unable to replace " + out);
         }
         return true;
     }

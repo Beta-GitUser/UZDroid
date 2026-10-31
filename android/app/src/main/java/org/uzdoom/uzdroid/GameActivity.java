@@ -52,7 +52,6 @@ public class GameActivity extends SDLActivity {
         EnginePaths.ensureLayout(root);
         rotateLog(new File(root, "logs/uzdoom.log"));
         EnginePaths.applyEnvironment(root);
-        EnginePaths.applyInputEnvironment(LauncherPrefs.load(this).touchAsMouse);
 
         String[] args = getIntent().getStringArrayExtra(EXTRA_ARGS);
         if (args == null) {

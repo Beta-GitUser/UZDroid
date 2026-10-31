@@ -211,7 +211,7 @@ public class LauncherActivity extends AppCompatActivity {
         });
 
         chkTouchMouse.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            prefs.touchAsMouse = isChecked;
+            prefs.touchControls = isChecked;
             persist();
         });
 
@@ -247,7 +247,7 @@ public class LauncherActivity extends AppCompatActivity {
         seekScale.setEnabled(!prefs.customResolution);
 
         chkJoystick.setChecked(prefs.joystickEnabled);
-        chkTouchMouse.setChecked(prefs.touchAsMouse);
+        chkTouchMouse.setChecked(prefs.touchControls);
         chkSound.setChecked(prefs.soundEnabled);
 
         etArgs.setText(prefs.extraArgs);

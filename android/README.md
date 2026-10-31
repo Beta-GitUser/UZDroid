@@ -22,6 +22,36 @@ keyboard (or a gamepad) are assumed. Everything in-game is the stock UZDoom UI.
 | **Engine log** | The native layer mirrors stdout/stderr into logcat *and* `logs/uzdoom.log`. "Share engine log" sends it anywhere. |
 | **Reset configuration** | Deletes `config/uzdoom/uzdoom.ini` so the engine starts from defaults again. |
 
+## Touch controls
+
+The engine handles touches itself (`touch_enable`, on by default on Android);
+SDL's own touch-to-mouse translation is turned off so nothing arrives twice.
+Two contexts, decided per gesture by the same rule the mouse already follows:
+
+| Context | When | One finger | Two fingers |
+|---|---|---|---|
+| **UI** | a menu or the console is open, or the game is not in a level | pointer follows the finger, tap clicks | scroll |
+| **Gameplay** | in a level, nothing open | trackpad: drag turns, tap fires | scroll (weapon change) |
+
+A two-finger tap is mouse2 (alt fire). There is no dead zone or acceleration of
+its own: the movement goes through `PostMouseMove()`, so the mouse sensitivity
+and invert settings in *Options -> Mouse Options* apply on top of
+`touch_sensitivity`.
+
+Both settings live in the engine, at **Options -> Touch controls**, and can also
+be set from the console:
+
+```
+touch_enable 0|1
+touch_sensitivity 0.1 .. 4
+```
+
+The launcher switch only decides whether the engine gets the touches at all
+(off = SDL's built-in touch-to-mouse, which is a debugging fallback).
+
+The PK3s are refreshed automatically when the app version changes, so a new
+build's menus and defaults replace the ones already unpacked on the device.
+
 The data folder is used through the engine's normal XDG variables, set right
 before the engine starts:
 

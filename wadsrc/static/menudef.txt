@@ -362,6 +362,7 @@ OptionMenu "OptionsMenu" protected
 	Submenu "$OPTMNU_CONTROLS",			"CustomizeControls"
 	Submenu "$OPTMNU_MOUSE",			"MouseOptions"
 	Submenu "$OPTMNU_JOYSTICK",			"JoystickOptions"
+	Submenu "Touch controls",			"TouchOptions"
 	StaticText " "
 	Submenu "$OPTMNU_PLAYER",			"NewPlayerMenu"
 	Submenu "$OPTMNU_GAMEPLAY",			"GameplayOptions"
@@ -779,6 +780,19 @@ OptionString "Cursors"
 	"strfcurs", "$OPTVAL_STRIFE"
 	"chexcurs", "$OPTSTR_CHEX"
 	"-", "$OPTSTR_SYSTEMCURSOR"
+}
+
+OptionMenu "TouchOptions"
+{
+	Title "Touch controls"
+	Option "Touch controls",	"touch_enable", "OnOff"
+	Slider "Look sensitivity",	"touch_sensitivity", 0.1, 4, 0.05, 2
+	StaticText ""
+	StaticText "Drag anywhere to look around."
+	StaticText "Tap to fire, two fingers to scroll."
+	StaticText ""
+	StaticText "The mouse sensitivity settings above"
+	StaticText "are applied on top of this."
 }
 
 OptionMenu "MouseOptions" protected

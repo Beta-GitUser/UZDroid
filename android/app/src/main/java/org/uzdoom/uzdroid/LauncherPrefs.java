@@ -34,8 +34,12 @@ public final class LauncherPrefs {
     /** SDL joystick/gamepad handling (passes +use_joystick 0 when false). */
     public boolean joystickEnabled = true;
 
-    /** Touch is delivered to the engine as mouse motion and buttons. */
-    public boolean touchAsMouse = true;
+    /**
+     * Let the engine handle touch itself (trackpad look, tap to fire) instead of
+     * SDL turning touches into a pointer. Sensitivity lives in the engine, in
+     * Options -> Touch controls.
+     */
+    public boolean touchControls = true;
 
     /** Sound on. Off passes -nosound, which is also the way to rule libopenal out. */
     public boolean soundEnabled = true;
@@ -50,7 +54,7 @@ public final class LauncherPrefs {
         prefs.extraArgs = sp.getString("extraArgs", "");
         prefs.lastWad = sp.getString("lastWad", "");
         prefs.joystickEnabled = sp.getBoolean("joystickEnabled", true);
-        prefs.touchAsMouse = sp.getBoolean("touchAsMouse", true);
+        prefs.touchControls = sp.getBoolean("touchControls", true);
         prefs.soundEnabled = sp.getBoolean("soundEnabled", true);
         return prefs;
     }
@@ -65,7 +69,7 @@ public final class LauncherPrefs {
                 .putString("extraArgs", extraArgs)
                 .putString("lastWad", lastWad)
                 .putBoolean("joystickEnabled", joystickEnabled)
-                .putBoolean("touchAsMouse", touchAsMouse)
+                .putBoolean("touchControls", touchControls)
                 .putBoolean("soundEnabled", soundEnabled)
                 .apply();
     }
