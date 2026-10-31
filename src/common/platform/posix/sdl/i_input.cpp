@@ -299,13 +299,19 @@ static void I_CheckNativeMouse ()
 
 
 //===========================================================================
+//===========================================================================
 //
-// Touch controls
+// Touch input
 //
-// A finger is either a pointer for the menus or a trackpad for the game,
-// depending on what currently owns the input: the same rule the mouse already
-// follows (GUICapture) plus "not in a level". Nothing here synthesises SDL
-// mouse events, so a real mouse plugged in at the same time keeps working.
+// Gameplay has two raw touch zones: the left strip moves (a virtual stick that
+// presses the movement keys) and the rest looks (a trackpad feeding the mouse
+// path, so the sensitivity and invert cvars apply). Menus get a trackpad as
+// well, moving a pointer that a tap clicks.
+//
+// Fire, use, jump and everything else are on-screen buttons defined in
+// touch-buttons.txt in the data folder. They reach the engine as ordinary key
+// and mouse button events, so they stay bindable in Controls and need no code
+// here.
 //
 //===========================================================================
 
@@ -315,45 +321,33 @@ static void I_CheckNativeMouse ()
 #define TOUCH_ENABLED_DEFAULT false
 #endif
 
-CUSTOM_CVARD(Bool, touch_enable, TOUCH_ENABLED_DEFAULT, CVAR_ARCHIVE | CVAR_GLOBALCONFIG,
-	"Touch controls: trackpad look, tap to fire, two fingers to scroll")
+CUSTOM_CVARD (Bool, touch_enable, TOUCH_ENABLED_DEFAULT, CVAR_ARCHIVE | CVAR_GLOBALCONFIG,
+	"Touch controls: trackpad look, virtual stick to move, buttons for the rest")
 {
 	// SDL would otherwise turn every touch into a synthetic mouse first, and
-	// then every tap would arrive twice.
+	// then every touch would arrive twice.
 	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, *touch_enable ? "0" : "1");
 }
 
 // The mouse sensitivity cvars are applied by PostMouseMove() on top of this.
-CVAR(Float, touch_sensitivity, 1.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR (Float, touch_sensitivity, 1.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+// Width of the movement strip, as a fraction of the window width.
+CVAR (Float, touch_movezone, 0.35f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+// How far the stick must leave its origin before it moves, as a fraction of
+// its radius.
+CVAR (Float, touch_deadzone, 0.2f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 namespace
 {
-	// A tap is a touch that neither travelled far nor stayed down long.
-	constexpr float TapTravelFraction = 0.03f;	// of the window height
+	// The stick's radius, as a fraction of the shorter screen edge.
+	constexpr float StickRadiusFraction = 0.10f;
+	// A tap neither travels far nor stays down long.
+	constexpr float TapTravelFraction = 0.03f;
 	constexpr Uint32 TapMaxDuration = 250;
-	// One wheel notch per this fraction of the window height of two-finger drag.
-	constexpr float ScrollStepFraction = 0.06f;
-
-	struct FTouchGesture
-	{
-		bool Down = false;
-		int Fingers = 0;
-		int MaxFingers = 0;
-		Uint32 DownTime = 0;
-		float Travel = 0;
-		float LastX = 0;
-		float LastY = 0;
-		float ScrollLastY = 0;
-		float ScrollAccum = 0;
-		int WindowW = 0;
-		int WindowH = 0;
-	};
-
-	FTouchGesture Touch;
 
 	// Budgeted so a long session cannot drown the console, but the first few
 	// gestures of a run always say what the engine decided.
-	void TouchLog(const char *what, int a = 0, int b = 0)
+	void TouchLog (const char *what, int a = 0, int b = 0)
 	{
 		static int budget = 60;
 
@@ -363,250 +357,363 @@ namespace
 		Printf("IN touch %s (%d, %d)\n", what, a, b);
 	}
 
-	// Menus and the console own the pointer exactly when the engine says so;
-	// outside a level (title screen, intermission) taps should open the menu
-	// rather than fire.
-	bool TouchUiContext()
+	template<typename T> T TouchClamp (T value, T low, T high)
+	{
+		return value < low ? low : (value > high ? high : value);
+	}
+
+	struct FTrackedFinger
+	{
+		SDL_FingerID Id = 0;
+		bool Down = false;
+		float StartX = 0, StartY = 0;
+		float LastX = 0, LastY = 0;
+		float Travel = 0;
+		Uint32 DownTime = 0;
+	};
+
+	FTrackedFinger LookFinger;	// gameplay look
+	FTrackedFinger MoveFinger;	// gameplay stick
+	FTrackedFinger TapFinger;	// the only finger that can become a menu click
+
+	// Fractional remainders, so slow drags are not lost to integer truncation.
+	float LookRemX = 0, LookRemY = 0;
+
+	int TouchWindowW = 0, TouchWindowH = 0;
+
+	// The menu pointer, in window pixels.
+	float CursorX = 0, CursorY = 0;
+	bool CursorPlaced = false;
+
+	// Which way the stick currently pushes (-1, 0, 1 on each axis).
+	int StickKeysX = 0, StickKeysY = 0;
+
+	bool TouchUiContext ()
 	{
 		return GUICapture || gamestate != GS_LEVEL;
 	}
 
-	void TouchWindowSize(const SDL_TouchFingerEvent &tf)
+	void TouchWindowBounds (const SDL_TouchFingerEvent &tf)
 	{
-		SDL_Window *window = SDL_GetWindowFromID(tf.windowID);
+		TouchWindowW = TouchWindowH = 0;
 
-		Touch.WindowW = Touch.WindowH = 0;
-		if (window != nullptr)
+		if (SDL_Window *window = SDL_GetWindowFromID(tf.windowID))
 		{
-			SDL_GetWindowSize(window, &Touch.WindowW, &Touch.WindowH);
+			SDL_GetWindowSize(window, &TouchWindowW, &TouchWindowH);
 		}
-		if (Touch.WindowW <= 0 || Touch.WindowH <= 0)
+		if (TouchWindowW <= 0 || TouchWindowH <= 0)
 		{
-			Touch.WindowW = 1280;
-			Touch.WindowH = 720;
+			TouchWindowW = 1280;
+			TouchWindowH = 720;
 		}
 	}
 
-	event_t TouchEvent(EGenericEvent type)
+	int TouchKeyMods ()
 	{
-		event_t event = { 0,0,0,0,0,0,0 };
-		event.type = type;
-
 		SDL_Keymod kmod = SDL_GetModState();
-		event.data3 = ((kmod & KMOD_SHIFT) ? GKM_SHIFT : 0) |
-		              ((kmod & KMOD_CTRL) ? GKM_CTRL : 0) |
-		              ((kmod & KMOD_ALT) ? GKM_ALT : 0);
-		return event;
+
+		return ((kmod & KMOD_SHIFT) ? GKM_SHIFT : 0) |
+		       ((kmod & KMOD_CTRL) ? GKM_CTRL : 0) |
+		       ((kmod & KMOD_ALT) ? GKM_ALT : 0);
 	}
 
-	void TouchPostGuiMove(float x, float y)
+	void TouchPostGui (EGUIEvent subtype, int x, int y)
 	{
 		if (screen == nullptr)
 			return;
 
-		event_t event = TouchEvent(EV_GUI_Event);
-		event.data1 = int(x);
-		event.data2 = int(y);
+		event_t event = { 0,0,0,0,0,0,0 };
+
+		event.type = EV_GUI_Event;
+		event.data1 = x;
+		event.data2 = y;
+		event.data3 = TouchKeyMods();
 		screen->ScaleCoordsFromWindow(event.data1, event.data2);
-		event.subtype = EV_GUI_MouseMove;
+		event.subtype = subtype;
 		D_PostEvent(&event);
 	}
 
-	void TouchPostGuiButton(bool down, float x, float y)
+	void TouchPostGuiWheel (bool up)
 	{
 		if (screen == nullptr)
 			return;
 
-		event_t event = TouchEvent(EV_GUI_Event);
-		event.data1 = int(x);
-		event.data2 = int(y);
-		screen->ScaleCoordsFromWindow(event.data1, event.data2);
-		event.subtype = down ? EV_GUI_LButtonDown : EV_GUI_LButtonUp;
-		D_PostEvent(&event);
-	}
+		event_t event = { 0,0,0,0,0,0,0 };
 
-	void TouchPostGuiWheel(bool up)
-	{
-		if (screen == nullptr)
-			return;
-
-		event_t event = TouchEvent(EV_GUI_Event);
+		event.type = EV_GUI_Event;
+		event.data3 = TouchKeyMods();
 		event.subtype = up ? EV_GUI_WheelUp : EV_GUI_WheelDown;
 		D_PostEvent(&event);
 	}
 
-	void TouchPostKey(int key, bool down)
+	void TouchPostKey (int key, bool down)
 	{
-		event_t event = TouchEvent(down ? EV_KeyDown : EV_KeyUp);
+		event_t event = { 0,0,0,0,0,0,0 };
+
+		event.type = down ? EV_KeyDown : EV_KeyUp;
 		event.data1 = key;
 		D_PostEvent(&event);
 	}
 
-	void TouchPostClick(int key)
+	//--- the menu pointer -----------------------------------------------------
+
+	void TouchCursorMove (float dx, float dy)
 	{
-		TouchPostKey(key, true);
-		TouchPostKey(key, false);
+		if (!CursorPlaced)
+		{
+			CursorX = TouchWindowW * 0.5f;
+			CursorY = TouchWindowH * 0.5f;
+			CursorPlaced = true;
+		}
+
+		CursorX = TouchClamp(CursorX + dx, 0.f, float(TouchWindowW - 1));
+		CursorY = TouchClamp(CursorY + dy, 0.f, float(TouchWindowH - 1));
+
+		TouchPostGui(EV_GUI_MouseMove, int(CursorX), int(CursorY));
 	}
 
-	void TouchScroll(bool up)
+	void TouchCursorClick ()
 	{
-		if (TouchUiContext())
+		if (!CursorPlaced)
 		{
-			TouchPostGuiWheel(up);
+			TouchCursorMove(0, 0);
 		}
-		else
+
+		TouchPostGui(EV_GUI_LButtonDown, int(CursorX), int(CursorY));
+		TouchPostGui(EV_GUI_LButtonUp, int(CursorX), int(CursorY));
+	}
+
+	//--- the movement stick ---------------------------------------------------
+
+	void TouchStickPush (int x, int y)
+	{
+		if (x != StickKeysX)
 		{
-			TouchPostClick(up ? KEY_MWHEELUP : KEY_MWHEELDOWN);
+			if (StickKeysX < 0)		TouchPostKey(KEY_LEFTARROW, false);
+			if (StickKeysX > 0)		TouchPostKey(KEY_RIGHTARROW, false);
+			if (x < 0)				TouchPostKey(KEY_LEFTARROW, true);
+			if (x > 0)				TouchPostKey(KEY_RIGHTARROW, true);
+			StickKeysX = x;
+		}
+
+		if (y != StickKeysY)
+		{
+			if (StickKeysY < 0)		TouchPostKey(KEY_DOWNARROW, false);
+			if (StickKeysY > 0)		TouchPostKey(KEY_UPARROW, false);
+			if (y < 0)				TouchPostKey(KEY_DOWNARROW, true);
+			if (y > 0)				TouchPostKey(KEY_UPARROW, true);
+			StickKeysY = y;
 		}
 	}
 
-	void TouchFingerDown(const SDL_TouchFingerEvent &tf)
+	void TouchStickRelease ()
+	{
+		TouchStickPush(0, 0);
+	}
+
+	void TouchStickUpdate ()
+	{
+		const float radius = std::min(TouchWindowW, TouchWindowH) * StickRadiusFraction;
+		const float dead = radius * TouchClamp(float(touch_deadzone), 0.f, 0.9f);
+
+		const float dx = MoveFinger.LastX - MoveFinger.StartX;
+		const float dy = MoveFinger.LastY - MoveFinger.StartY;
+
+		int x = 0, y = 0;
+
+		if (fabsf(dx) > dead)	x = (dx < 0) ? -1 : 1;
+		if (fabsf(dy) > dead)	y = (dy < 0) ? -1 : 1;	// up is forward
+
+		TouchStickPush(x, y);
+	}
+
+	//--- finger bookkeeping ---------------------------------------------------
+
+	void TouchForget (FTrackedFinger &finger)
+	{
+		finger.Down = false;
+		finger.Id = 0;
+	}
+
+	void TouchReset ()
+	{
+		TouchStickRelease();
+		TouchForget(LookFinger);
+		TouchForget(MoveFinger);
+		TouchForget(TapFinger);
+		LookRemX = LookRemY = 0;
+	}
+
+	// Keeping the two contexts apart matters more than any single event: when
+	// the menu opens mid-drag the stick must not stay pressed.
+	bool TouchLastUiContext;
+	bool TouchContextKnown = false;
+
+	void TouchUpdateContext ()
+	{
+		const bool ui = TouchUiContext();
+
+		if (!TouchContextKnown || ui != TouchLastUiContext)
+		{
+			TouchContextKnown = true;
+			TouchLastUiContext = ui;
+			TouchReset();
+		}
+	}
+
+	void TouchFingerDown (const SDL_TouchFingerEvent &tf)
 	{
 		if (!touch_enable)
 			return;
 
-		TouchWindowSize(tf);
+		TouchUpdateContext();
+		TouchWindowBounds(tf);
 
-		const float x = tf.x * Touch.WindowW;
-		const float y = tf.y * Touch.WindowH;
+		const float x = tf.x * TouchWindowW;
+		const float y = tf.y * TouchWindowH;
 
-		Touch.Fingers++;
-		if (Touch.Fingers > Touch.MaxFingers)
-			Touch.MaxFingers = Touch.Fingers;
+		FTrackedFinger *slot = nullptr;
 
-		if (Touch.Fingers == 1)
+		if (TouchUiContext())
 		{
-			Touch.Down = true;
-			Touch.DownTime = SDL_GetTicks();
-			Touch.Travel = 0;
-			Touch.LastX = x;
-			Touch.LastY = y;
+			if (!TapFinger.Down)
+				slot = &TapFinger;
+		}
+		else if (x < TouchWindowW * TouchClamp(float(touch_movezone), 0.05f, 0.95f))
+		{
+			if (!MoveFinger.Down)
+				slot = &MoveFinger;
+		}
+		else if (!LookFinger.Down)
+		{
+			slot = &LookFinger;
+		}
 
-			if (TouchUiContext())
-			{
-				TouchPostGuiMove(x, y);
-			}
+		if (slot == nullptr)
+			return;		// extra fingers are ignored, buttons are separate views
 
-			TouchLog(TouchUiContext() ? "down ui" : "down game", int(x), int(y));
+		slot->Down = true;
+		slot->Id = tf.fingerId;
+		slot->StartX = slot->LastX = x;
+		slot->StartY = slot->LastY = y;
+		slot->Travel = 0;
+		slot->DownTime = SDL_GetTicks();
+
+		if (slot == &MoveFinger)
+		{
+			TouchStickUpdate();
+			TouchLog("stick down", int(x), int(y));
 		}
 		else
 		{
-			// A second finger means scrolling, so this is not a tap any more.
-			Touch.ScrollLastY = y;
-			Touch.ScrollAccum = 0;
-			Touch.Travel = Touch.WindowH;
+			TouchLog(slot == &LookFinger ? "look down" : "pointer down", int(x), int(y));
 		}
 	}
 
-	void TouchFingerMotion(const SDL_TouchFingerEvent &tf)
-	{
-		if (!touch_enable || !Touch.Down)
-			return;
-
-		TouchWindowSize(tf);
-
-		const float x = tf.x * Touch.WindowW;
-		const float y = tf.y * Touch.WindowH;
-
-		if (Touch.Fingers <= 1)
-		{
-			const float dx = x - Touch.LastX;
-			const float dy = y - Touch.LastY;
-
-			Touch.Travel += fabsf(dx) + fabsf(dy);
-			Touch.LastX = x;
-			Touch.LastY = y;
-
-			if (TouchUiContext())
-			{
-				// Menus: the finger is a pointer.
-				TouchPostGuiMove(x, y);
-			}
-			else
-			{
-				// Game: the finger is a trackpad. PostMouseMove applies the
-				// engine's own mouse sensitivity and invert settings on top.
-				const int mx = int(dx * touch_sensitivity);
-				const int my = int(dy * touch_sensitivity);
-
-				if (mx != 0 || my != 0)
-				{
-					PostMouseMove(mx, my);
-				}
-			}
-		}
-		else
-		{
-			const float step = std::max(1.0f, Touch.WindowH * ScrollStepFraction);
-
-			Touch.ScrollAccum += y - Touch.ScrollLastY;
-			Touch.ScrollLastY = y;
-
-			while (Touch.ScrollAccum >= step)
-			{
-				Touch.ScrollAccum -= step;
-				TouchScroll(false);
-			}
-			while (Touch.ScrollAccum <= -step)
-			{
-				Touch.ScrollAccum += step;
-				TouchScroll(true);
-			}
-		}
-	}
-
-	void TouchFingerUp(const SDL_TouchFingerEvent &tf)
+	void TouchFingerMotion (const SDL_TouchFingerEvent &tf)
 	{
 		if (!touch_enable)
 			return;
 
-		if (Touch.Fingers > 0)
-			Touch.Fingers--;
+		TouchUpdateContext();
+		TouchWindowBounds(tf);
 
-		if (Touch.Fingers > 0 || !Touch.Down)
-			return;
+		const float x = tf.x * TouchWindowW;
+		const float y = tf.y * TouchWindowH;
 
-		TouchWindowSize(tf);
+		FTrackedFinger *finger = nullptr;
 
-		const Uint32 held = SDL_GetTicks() - Touch.DownTime;
-		const float limit = Touch.WindowH * TapTravelFraction;
-		const bool tap = Touch.Travel <= limit && held <= TapMaxDuration;
+		if (LookFinger.Down && LookFinger.Id == tf.fingerId)		finger = &LookFinger;
+		else if (MoveFinger.Down && MoveFinger.Id == tf.fingerId)	finger = &MoveFinger;
+		else if (TapFinger.Down && TapFinger.Id == tf.fingerId)	finger = &TapFinger;
+		else return;
 
-		Touch.Down = false;
+		const float dx = x - finger->LastX;
+		const float dy = y - finger->LastY;
 
-		if (!tap)
+		finger->Travel += fabsf(dx) + fabsf(dy);
+		finger->LastX = x;
+		finger->LastY = y;
+
+		if (finger == &MoveFinger)
 		{
-			Touch.MaxFingers = 0;
-			return;
+			TouchStickUpdate();
 		}
-
-		const float x = tf.x * Touch.WindowW;
-		const float y = tf.y * Touch.WindowH;
-
-		if (TouchUiContext())
+		else if (finger == &LookFinger)
 		{
-			TouchLog("tap ui", int(x), int(y));
-			TouchPostGuiButton(true, x, y);
-			TouchPostGuiButton(false, x, y);
-		}
-		else if (Touch.MaxFingers >= 2)
-		{
-			// Two-finger tap: alt fire, or whatever mouse2 is bound to.
-			TouchLog("tap game mouse2");
-			TouchPostClick(KEY_MOUSE2);
+			// Trackpad: the delta is what the engine sees, so m_sensitivity_x/y
+			// and the invert cvars do the rest. Remainders carry over, or slow
+			// drags would round away to nothing.
+			LookRemX += dx * touch_sensitivity;
+			LookRemY += dy * touch_sensitivity;
+
+			const int mx = int(LookRemX);
+			const int my = int(LookRemY);
+
+			LookRemX -= mx;
+			LookRemY -= my;
+
+			if (mx != 0 || my != 0)
+			{
+				PostMouseMove(mx, my);
+			}
 		}
 		else
 		{
-			TouchLog("tap game mouse1");
-			TouchPostClick(KEY_MOUSE1);
+			// Menu trackpad: move the pointer relative to where it already is.
+			TouchCursorMove(dx * touch_sensitivity, dy * touch_sensitivity);
+		}
+	}
+
+	void TouchFingerUp (const SDL_TouchFingerEvent &tf)
+	{
+		if (!touch_enable)
+			return;
+
+		if (MoveFinger.Down && MoveFinger.Id == tf.fingerId)
+		{
+			TouchStickRelease();
+			TouchForget(MoveFinger);
+			return;
 		}
 
-		Touch.MaxFingers = 0;
+		if (LookFinger.Down && LookFinger.Id == tf.fingerId)
+		{
+			TouchForget(LookFinger);
+			return;
+		}
+
+		if (!TapFinger.Down || TapFinger.Id != tf.fingerId)
+			return;
+
+		// A short, straight touch with the finger is a click where the pointer
+		// already points - not where the finger is, which is the point of a
+		// trackpad.
+		const float limit = std::min(TouchWindowW, TouchWindowH) * TapTravelFraction;
+		const bool tap = TapFinger.Travel <= limit &&
+			SDL_GetTicks() - TapFinger.DownTime <= TapMaxDuration;
+
+		TouchForget(TapFinger);
+
+		if (tap)
+		{
+			TouchLog("tap");
+			TouchCursorClick();
+		}
+	}
+
+	// The screen was locked, the app went away, something else took focus: no
+	// key may stay down.
+	void TouchSuspend ()
+	{
+		TouchReset();
 	}
 }
 
 void MessagePump (const SDL_Event &sev)
 {
+	TouchUpdateContext();
+
 	static int lastx = 0, lasty = 0;
 	int x, y;
 	event_t event = { 0,0,0,0,0,0,0 };
@@ -967,6 +1074,11 @@ void MessagePump (const SDL_Event &sev)
 
 	case SDL_FINGERUP:
 		TouchFingerUp(sev.tfinger);
+		break;
+
+	case SDL_APP_WILLENTERBACKGROUND:
+		// Losing the screen must not leave a movement key held down.
+		TouchSuspend();
 		break;
 
 	case SDL_JOYDEVICEADDED:

@@ -40,7 +40,7 @@
     <string name="opt_joystick">Gamepad / joystick input</string>
     <string name="opt_joystick_hint">Turns off SDL joystick handling entirely (+use_joystick 0). Use this when the menu scrolls on its own: that is a device reporting a stuck axis. Keyboard and mouse are unaffected.</string>
     <string name="opt_touch_mouse">Touch controls</string>
-    <string name="opt_touch_mouse_hint">Drag to look, tap to fire, two fingers to scroll, and the finger is a pointer while a menu is open. Look sensitivity is in the game: Options → Touch controls. Off hands the pointer back to SDL\'s touch-to-mouse translation, which is only useful for debugging.</string>
+    <string name="opt_touch_mouse_hint">Drag anywhere to look, the left strip moves you, and menus use the same drag as a trackpad. Every other action is an on-screen button: define them in touch-buttons.txt in the UZDroid folder and bind the keys they send in the game\'s Controls menu.</string>
 
     <!-- Audio -->
     <string name="section_audio">Audio</string>

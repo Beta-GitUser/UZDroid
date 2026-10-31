@@ -30,6 +30,18 @@ public class GameActivity extends SDLActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+        // SDL has just created its layout, so the button overlay can go on top
+        // of the surface. It is empty until touch-buttons.txt says otherwise.
+        TouchButtons.install(this);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Re-read the file every time we come back, so an edit applies without
+        // reinstalling anything.
+        TouchButtons.reload(this);
     }
 
     /**

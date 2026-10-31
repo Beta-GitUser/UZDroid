@@ -787,12 +787,16 @@ OptionMenu "TouchOptions"
 	Title "Touch controls"
 	Option "Touch controls",	"touch_enable", "OnOff"
 	Slider "Look sensitivity",	"touch_sensitivity", 0.1, 4, 0.05, 2
+	Slider "Move strip width",	"touch_movezone", 0.1, 0.8, 0.05, 2
+	Slider "Stick dead zone",	"touch_deadzone", 0, 0.8, 0.05, 2
 	StaticText ""
-	StaticText "Drag anywhere to look around."
-	StaticText "Tap to fire, two fingers to scroll."
+	StaticText "Drag to look, the left strip moves."
+	StaticText "Menus use the same drag as a trackpad."
 	StaticText ""
-	StaticText "The mouse sensitivity settings above"
-	StaticText "are applied on top of this."
+	StaticText "Fire, use, jump and the rest are"
+	StaticText "buttons in touch-buttons.txt."
+	StaticText "The mouse sensitivity options above"
+	StaticText "apply on top of the touch one."
 }
 
 OptionMenu "MouseOptions" protected

@@ -24,33 +24,44 @@ keyboard (or a gamepad) are assumed. Everything in-game is the stock UZDoom UI.
 
 ## Touch controls
 
-The engine handles touches itself (`touch_enable`, on by default on Android);
-SDL's own touch-to-mouse translation is turned off so nothing arrives twice.
-Two contexts, decided per gesture by the same rule the mouse already follows:
+The engine takes the raw touches (`touch_enable`, on by default on Android); SDL's
+own touch-to-mouse translation is switched off so nothing arrives twice.
 
-| Context | When | One finger | Two fingers |
-|---|---|---|---|
-| **UI** | a menu or the console is open, or the game is not in a level | pointer follows the finger, tap clicks | scroll |
-| **Gameplay** | in a level, nothing open | trackpad: drag turns, tap fires | scroll (weapon change) |
+| Where | What it does |
+|---|---|
+| Menus, console | **Trackpad.** Drag moves a pointer relative to where it is; a short tap clicks where the pointer points. |
+| Gameplay | **Look** anywhere on the right, **move** in the left strip (`touch_movezone`, default 35% wide). The stick presses the movement keys: up/down for forward and back, left/right for turn (rebind them in Controls for strafing). |
 
-A two-finger tap is mouse2 (alt fire). There is no dead zone or acceleration of
-its own: the movement goes through `PostMouseMove()`, so the mouse sensitivity
-and invert settings in *Options -> Mouse Options* apply on top of
-`touch_sensitivity`.
+Look motion goes through `PostMouseMove()`, so *Options -> Mouse Options*
+sensitivity and the invert settings apply on top of `touch_sensitivity`.
+There is no tap-to-fire and no gesture for anything else: **all other actions
+are buttons**.
 
-Both settings live in the engine, at **Options -> Touch controls**, and can also
-be set from the console:
+### Buttons
+
+Buttons come from `touch-buttons.txt` in the data folder (`Documents/UZDroid`).
+**Nothing is preset** - the file is created with an explanation only, and an
+empty file means no buttons.
 
 ```
-touch_enable 0|1
-touch_sensitivity 0.1 .. 4
+label   input   x   y   [width] [height] [alpha]
+
+fire    mouse1   0.86  0.60  0.12  0.18  0.45
+use     e        0.74  0.60  0.10  0.14  0.45
+jump    space    0.74  0.78  0.10  0.14  0.45
+menu    esc      0.94  0.04  0.08  0.10  0.45
 ```
 
-The launcher switch only decides whether the engine gets the touches at all
-(off = SDL's built-in touch-to-mouse, which is a debugging fallback).
+`x`, `y`, `width` and `height` are fractions of the screen, measured from the
+top left. Inputs are `mouse1`..`mouse3` or a key name (`a-z`, `0-9`, `space`,
+`enter`, `esc`, `tab`, `shift`, `ctrl`, `alt`, `up`, `down`, `left`, `right`,
+`f1`-`f12`, `comma`, `period`, `minus`, `equals`, `lbracket`, `rbracket`,
+`backspace`, `pageup`, `pagedown`, `home`, `end`).
 
-The PK3s are refreshed automatically when the app version changes, so a new
-build's menus and defaults replace the ones already unpacked on the device.
+The buttons inject ordinary SDL key and mouse button events, so they are bound
+in *Options -> Customize Controls* like any real device. The file is re-read
+every time the game comes to the foreground, so edits apply without
+reinstalling.
 
 The data folder is used through the engine's normal XDG variables, set right
 before the engine starts:
