@@ -118,7 +118,15 @@ A console button that also raises the keyboard is therefore
 `cmd:toggleconsole;uzdroid_kbup`.
 
 The file is re-read every time the game comes to the foreground, so edits apply
-without reinstalling. A button's image is `Touch/<label>.png` - a line starting
+without reinstalling.
+
+### Moving buttons without editing the file
+
+*Options -> Touch controls -> Move the buttons* (or the console command
+`uzdroid_touch_edit`) switches to a layout mode: every button gets an outline,
+dragging one moves it, and leaving the mode writes the new positions back into
+`touch-buttons.txt` - only the button lines change, so comments and hand edits
+survive. A button's image is `Touch/<label>.png` - a line starting
 `fire1` uses `fire1.png`.
 
 The game runs in landscape (the activity asks for `sensorLandscape`), so the

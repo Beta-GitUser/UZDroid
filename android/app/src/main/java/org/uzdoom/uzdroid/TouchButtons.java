@@ -54,6 +54,9 @@ public final class TouchButtons {
 
     private static Layer layer;
     private static List<Spec> lastSpecs = new ArrayList<>();
+    private static List<String> fileLines = new ArrayList<>();
+    private static File configFile;
+    private static boolean editing;
 
     private TouchButtons() {
     }
@@ -114,11 +117,15 @@ public final class TouchButtons {
             }
         }
 
+        configFile = file;
+
         List<Spec> specs;
         try {
-            specs = parse(file);
+            fileLines = readLines(file);
+            specs = parse(fileLines);
         } catch (IOException e) {
             Log.w(TAG, "cannot read " + file, e);
+            fileLines = new ArrayList<>();
             specs = new ArrayList<>();
         }
 
@@ -163,6 +170,76 @@ public final class TouchButtons {
         publish(lastSpecs);
     }
 
+    /** Drag-to-move mode: the engine handles the fingers, we show the result. */
+    public static void setEditing(boolean on) {
+        editing = on;
+
+        if (layer == null) {
+            return;
+        }
+        layer.post(() -> {
+            layer.setEditing(on);
+            if (!on) {
+                save();
+            }
+        });
+    }
+
+    /** A button followed the finger. Called from the game thread. */
+    public static void moveButton(int index, float x, float y) {
+        if (layer == null || index < 0 || index >= lastSpecs.size()) {
+            return;
+        }
+
+        Spec spec = lastSpecs.get(index);
+        spec.x = x;
+        spec.y = y;
+
+        layer.post(() -> {
+            layer.requestLayout();
+            layer.invalidate();
+        });
+    }
+
+    /**
+     * Writes the layout back, touching only the lines that are buttons so the
+     * comments in the file survive.
+     */
+    private static void save() {
+        if (configFile == null || fileLines.isEmpty()) {
+            return;
+        }
+
+        StringBuilder out = new StringBuilder();
+
+        for (int index = 0; index < fileLines.size(); index++) {
+            Spec spec = specAtLine(index);
+
+            if (spec != null) {
+                out.append(String.format(Locale.ROOT, "%s  %s  %.3f  %.3f  %.3f  %.3f  %.2f%n",
+                        spec.label, spec.input, spec.x, spec.y, spec.w, spec.h, spec.alpha));
+            } else {
+                out.append(fileLines.get(index)).append('\n');
+            }
+        }
+
+        try (FileWriter writer = new FileWriter(configFile, false)) {
+            writer.write(out.toString());
+            Log.i(TAG, "saved touch layout to " + configFile);
+        } catch (IOException e) {
+            Log.w(TAG, "cannot save " + configFile, e);
+        }
+    }
+
+    private static Spec specAtLine(int line) {
+        for (Spec spec : lastSpecs) {
+            if (spec.line == line) {
+                return spec;
+            }
+        }
+        return null;
+    }
+
     /** Engine tells us which button is held, so it can look pressed. */
     public static void onButtonPressed(int index, boolean pressed) {
         if (layer == null) {
@@ -195,20 +272,34 @@ public final class TouchButtons {
         String label;
         String input;            // passed to the engine as written
         float x, y, w, h, alpha;
+        int line;                // where it came from, so saving keeps the file
         Bitmap bitmap;
         volatile boolean pressed;
     }
 
-    private static List<Spec> parse(File file) throws IOException {
-        List<Spec> specs = new ArrayList<>();
+    private static List<String> readLines(File file) throws IOException {
+        List<String> lines = new ArrayList<>();
 
         try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
             String line;
             while ((line = reader.readLine()) != null) {
-                line = line.trim();
-                if (line.isEmpty() || line.startsWith("#")) {
-                    continue;
-                }
+                lines.add(line);
+            }
+        }
+        return lines;
+    }
+
+    private static List<Spec> parse(List<String> lines) {
+        List<Spec> specs = new ArrayList<>();
+
+        for (int index = 0; index < lines.size(); index++) {
+            String raw = lines.get(index);
+            String line = raw.trim();
+
+            if (line.isEmpty() || line.startsWith("#")) {
+                continue;
+            }
+            {
 
                 String[] parts = line.split("\\s+");
                 if (parts.length < 4) {
@@ -231,6 +322,7 @@ public final class TouchButtons {
                 }
 
                 spec.alpha = Math.max(0.05f, Math.min(1f, spec.alpha));
+                spec.line = index;
                 specs.add(spec);
             }
         }
@@ -314,6 +406,8 @@ public final class TouchButtons {
         private Bitmap knob;
 
         private final Paint imagePaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+        private final Paint editPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private boolean editingOutline;
         private final RectF scratch = new RectF();
 
         // Written by the game thread, read here.
@@ -341,6 +435,11 @@ public final class TouchButtons {
             invalidate();
         }
 
+        void setEditing(boolean on) {
+            editingOutline = on;
+            invalidate();
+        }
+
         void setPressed(int index, boolean pressed) {
             if (index >= 0 && index < buttons.size()) {
                 buttons.get(index).setPressedState(pressed);
@@ -365,6 +464,17 @@ public final class TouchButtons {
         @Override
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
+
+            if (editingOutline) {
+                editPaint.setStyle(Paint.Style.STROKE);
+                editPaint.setStrokeWidth(3f);
+                editPaint.setColor(Color.WHITE);
+
+                for (Btn button : buttons) {
+                    canvas.drawRect(button.getLeft(), button.getTop(),
+                            button.getRight(), button.getBottom(), editPaint);
+                }
+            }
 
             if (!stickActive || frame == null) {
                 return;

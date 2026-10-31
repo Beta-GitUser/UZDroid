@@ -480,6 +480,13 @@ namespace
 
 	TArray<FTouchButton> TouchButtons;
 
+	// Editing: drag a button to where it belongs, then leave the mode and the
+	// overlay writes the file back.
+	bool TouchEditing = false;
+	int TouchEditIndex = -1;
+	float TouchEditGrabX = 0, TouchEditGrabY = 0;
+	SDL_FingerID TouchEditFinger = 0;
+
 	int TouchKeyFromName (const char *name)
 	{
 		// The same names the bind command takes, plus a "#123" escape hatch.
@@ -526,6 +533,62 @@ namespace
 		env->DeleteLocalRef(activity);
 #else
 		(void)index; (void)down;
+#endif
+	}
+
+	void TouchPushEditMode (bool editing)
+	{
+#ifdef __ANDROID__
+		JNIEnv *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+		jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+
+		if (env == nullptr || activity == nullptr)
+			return;
+
+		jclass cls = env->GetObjectClass(activity);
+		jmethodID method = env->GetMethodID(cls, "onTouchEditMode", "(Z)V");
+
+		if (method != nullptr)
+		{
+			env->CallVoidMethod(activity, method, editing ? JNI_TRUE : JNI_FALSE);
+		}
+		if (env->ExceptionCheck())
+		{
+			env->ExceptionClear();
+		}
+
+		env->DeleteLocalRef(cls);
+		env->DeleteLocalRef(activity);
+#else
+		(void)editing;
+#endif
+	}
+
+	void TouchPushButtonMoved (int index, float x, float y)
+	{
+#ifdef __ANDROID__
+		JNIEnv *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+		jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+
+		if (env == nullptr || activity == nullptr)
+			return;
+
+		jclass cls = env->GetObjectClass(activity);
+		jmethodID method = env->GetMethodID(cls, "onTouchButtonMoved", "(IFF)V");
+
+		if (method != nullptr)
+		{
+			env->CallVoidMethod(activity, method, index, x, y);
+		}
+		if (env->ExceptionCheck())
+		{
+			env->ExceptionClear();
+		}
+
+		env->DeleteLocalRef(cls);
+		env->DeleteLocalRef(activity);
+#else
+		(void)index; (void)x; (void)y;
 #endif
 	}
 
@@ -829,6 +892,25 @@ namespace
 		const float x = tf.x * TouchWindowW;
 		const float y = tf.y * TouchWindowH;
 
+		// Editing takes the fingers first: a drag moves the button under it
+		// instead of firing it, and nothing looks around meanwhile.
+		if (TouchEditing)
+		{
+			if (TouchEditIndex < 0)
+			{
+				const int index = TouchButtonAt(tf.x, tf.y);
+
+				if (index >= 0)
+				{
+					TouchEditIndex = index;
+					TouchEditFinger = tf.fingerId;
+					TouchEditGrabX = tf.x - TouchButtons[index].x;
+					TouchEditGrabY = tf.y - TouchButtons[index].y;
+				}
+			}
+			return;
+		}
+
 		// A thumb on a button does not stop the other thumb from looking: the
 		// button is a rectangle here, not a view that owns the gesture.
 		if (!TouchUiContext())
@@ -892,6 +974,20 @@ namespace
 		const float x = tf.x * TouchWindowW;
 		const float y = tf.y * TouchWindowH;
 
+		if (TouchEditing)
+		{
+			if (TouchEditIndex >= 0 && TouchEditFinger == tf.fingerId)
+			{
+				FTouchButton &button = TouchButtons[TouchEditIndex];
+
+				button.x = TouchClamp(tf.x - TouchEditGrabX, 0.f, 1.f - button.w);
+				button.y = TouchClamp(tf.y - TouchEditGrabY, 0.f, 1.f - button.h);
+
+				TouchPushButtonMoved(TouchEditIndex, button.x, button.y);
+			}
+			return;
+		}
+
 		FTrackedFinger *finger = nullptr;
 
 		if (LookFinger.Down && LookFinger.Id == tf.fingerId)		finger = &LookFinger;
@@ -940,6 +1036,15 @@ namespace
 	{
 		if (!touch_enable)
 			return;
+
+		if (TouchEditing)
+		{
+			if (TouchEditIndex >= 0 && TouchEditFinger == tf.fingerId)
+			{
+				TouchEditIndex = -1;
+			}
+			return;
+		}
 
 		if (TouchButtonsRelease(tf.fingerId))
 			return;
@@ -1072,6 +1177,16 @@ bool UZDroid_HandleEvent (const SDL_Event &sev)
 		delete[] command;
 	}
 	return true;
+}
+
+CCMD (uzdroid_touch_edit)
+{
+	TouchEditing = !TouchEditing;
+	TouchEditIndex = -1;
+	TouchStickRelease();
+
+	TouchPushEditMode(TouchEditing);
+	Printf("Touch layout editing %s: drag a button to move it.\n", TouchEditing ? "on" : "off");
 }
 
 CCMD (uzdroid_button_reset)

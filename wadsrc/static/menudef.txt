@@ -791,6 +791,8 @@ OptionMenu "TouchOptions"
 	Slider "Move strip width",	"touch_movezone", 0.1, 0.8, 0.05, 2
 	Slider "Stick dead zone",	"touch_deadzone", 0, 0.8, 0.05, 2
 	StaticText ""
+	Command "Move the buttons",	"uzdroid_touch_edit"
+	StaticText ""
 	StaticText "Drag to look, the left strip moves."
 	StaticText "Menus use the same drag as a trackpad."
 	StaticText ""

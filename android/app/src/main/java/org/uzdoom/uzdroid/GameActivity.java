@@ -63,6 +63,16 @@ public class GameActivity extends SDLActivity {
         TouchButtons.republish();
     }
 
+    /** Layout editing was turned on or off; the overlay shows it and saves. */
+    public void onTouchEditMode(boolean editing) {
+        TouchButtons.setEditing(editing);
+    }
+
+    /** A button was dragged to a new place while editing. */
+    public void onTouchButtonMoved(int index, float x, float y) {
+        TouchButtons.moveButton(index, x, y);
+    }
+
     /** Which button the engine sees held, so the overlay can draw it pressed. */
     public void onTouchButtonPressed(int index, boolean pressed) {
         TouchButtons.onButtonPressed(index, pressed);
