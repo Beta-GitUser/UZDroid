@@ -34,6 +34,10 @@ public class GameActivity extends SDLActivity {
         // SDL has just created its layout, so the button overlay can go on top
         // of the surface. It is empty until touch-buttons.txt says otherwise.
         TouchButtons.install(this);
+
+        // Android shows its own pointer for a connected mouse; the engine only
+        // draws a cursor when there is none.
+        MousePresence.start(this);
     }
 
     @Override
@@ -42,6 +46,8 @@ public class GameActivity extends SDLActivity {
         // Re-read the file every time we come back, so an edit applies without
         // reinstalling anything.
         TouchButtons.reload(this);
+        // The engine has certainly started by now; make sure it knows.
+        MousePresence.refreshNow();
     }
 
     /**

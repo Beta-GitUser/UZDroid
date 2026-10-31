@@ -340,6 +340,10 @@ CUSTOM_CVARD (Bool, touch_enable, TOUCH_ENABLED_DEFAULT, CVAR_ARCHIVE | CVAR_GLO
 CVAR (Float, touch_sensitivity, 1.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 // Width of the movement strip, as a fraction of the window width.
 CVAR (Float, touch_movezone, 0.35f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+// State, not a setting: the Java side keeps it in step with the input devices,
+// because Android already draws a pointer for a connected mouse.
+CVAR (Bool, touch_mouse_present, false, 0)
+
 // How fast the menu pointer follows a drag. Separate from the look
 // sensitivity: a menu is dragged pixel by pixel, aiming is not.
 CVAR (Float, touch_cursor_speed, 2.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)

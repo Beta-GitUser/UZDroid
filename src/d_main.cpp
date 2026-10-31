@@ -1092,9 +1092,13 @@ static void DrawRateStuff()
 //
 //==========================================================================
 
+EXTERN_CVAR(Bool, touch_mouse_present)
+
 static void DrawTouchCursor()
 {
-	if (!TouchPointerPlaced)
+	// A connected mouse gets Android's own pointer; drawing ours as well would
+	// show two.
+	if (!TouchPointerPlaced || touch_mouse_present)
 		return;
 
 	FString pic;
