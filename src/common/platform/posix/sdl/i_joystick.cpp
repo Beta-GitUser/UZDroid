@@ -704,8 +704,15 @@ public:
 	void UpdateDeviceList()
 	{
 		Joysticks.DeleteAndClear();
-		JoyLog("IN SDL reports %d joystick(s), use_joystick=%d\n", SDL_NumJoysticks(), (int)(bool)use_joystick);
-		for(int i = 0; i < SDL_NumJoysticks(); i++)
+
+		// No cvars here. I_StartupJoysticks() is called from main() before
+		// GameMain(), and EXTERN_CVAR declares an FBoolCVarRef whose operator
+		// bool dereferences a pointer that is only set when the cvar system is
+		// registered - reading one this early segfaults.
+		const int count = SDL_NumJoysticks();
+		JoyLog("IN SDL reports %d joystick(s)\n", count);
+
+		for(int i = 0; i < count; i++)
 		{
 			SDLInputJoystick *device = new SDLInputJoystick(i);
 			if(device->IsValid())
