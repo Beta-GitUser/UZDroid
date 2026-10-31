@@ -82,9 +82,14 @@ top left. There are three kinds of input:
 | `cmd:<command>` | runs a console command on press |
 | `hold:<+command>` | runs it on press and its opposite on release (`hold:+attack`) |
 
-Key names: `a-z`, `0-9`, `space`, `enter`, `esc`, `tab`, `shift`, `ctrl`, `alt`,
-`up`, `down`, `left`, `right`, `f1`-`f12`, `comma`, `period`, `minus`, `equals`,
-`lbracket`, `rbracket`, `backspace`, `pageup`, `pagedown`, `home`, `end`.
+Key names are the ones the game's own `bind` command takes - `f`, `space`,
+`Escape`, `Tab`, `[`, `]`, `F3`, `Up`, `Down`, `Ctrl` - so anything the engine
+can bind can sit on a button. `#123` binds a raw key code.
+
+The engine owns the buttons, not the overlay: `uzdroid_button` lines hand it the
+rectangles and the inputs, and it decides what a press means. That is why a
+thumb resting on fire does not stop the other thumb from looking - Android would
+have given a pressed button view the whole gesture.
 
 Commands go through the same queue a bound key uses, so aliases, mod actions and
 `;`-separated chains all work - handy when a mod pack has more actions than a

@@ -29,8 +29,6 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.util.Log;
-import android.view.KeyEvent;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 
@@ -55,6 +53,7 @@ public final class TouchButtons {
     private static final float STICK_RADIUS = 0.10f;
 
     private static Layer layer;
+    private static List<Spec> lastSpecs = new ArrayList<>();
 
     private TouchButtons() {
     }
@@ -127,8 +126,10 @@ public final class TouchButtons {
             spec.bitmap = load(dir, spec.label);
         }
 
+        lastSpecs = specs;
         layer.setButtons(specs);
         layer.setStickImages(load(dir, "JoyFrame"), load(dir, "JoyKnob"));
+        publish(specs);
 
         CrashLog.append(activity, "touch buttons: " + specs.size() + " from " + file.getAbsolutePath());
 
@@ -154,6 +155,22 @@ public final class TouchButtons {
         });
     }
 
+    /**
+     * The engine asks for the table once its input is up; the first publish may
+     * have been dropped because the native side was still loading.
+     */
+    public static void republish() {
+        publish(lastSpecs);
+    }
+
+    /** Engine tells us which button is held, so it can look pressed. */
+    public static void onButtonPressed(int index, boolean pressed) {
+        if (layer == null) {
+            return;
+        }
+        layer.post(() -> layer.setPressed(index, pressed));
+    }
+
     /** Called by the engine whenever the movement stick moves. Game thread. */
     public static void onStick(float originX, float originY, float dx, float dy, boolean active) {
         if (layer == null) {
@@ -176,12 +193,10 @@ public final class TouchButtons {
 
     private static final class Spec {
         String label;
-        int keyCode = -1;        // Android key code, or
-        int mouseButton = 0;     // 1..3 for mouse1..mouse3, or
-        String command;          // a console command
-        boolean hold;            // press runs it, release runs its opposite
+        String input;            // passed to the engine as written
         float x, y, w, h, alpha;
         Bitmap bitmap;
+        volatile boolean pressed;
     }
 
     private static List<Spec> parse(File file) throws IOException {
@@ -190,7 +205,6 @@ public final class TouchButtons {
         try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
             String line;
             while ((line = reader.readLine()) != null) {
-                // A ';' can separate a command chain, so only '#' starts a comment.
                 line = line.trim();
                 if (line.isEmpty() || line.startsWith("#")) {
                     continue;
@@ -204,6 +218,7 @@ public final class TouchButtons {
 
                 Spec spec = new Spec();
                 spec.label = parts[0];
+                spec.input = parts[1];
                 spec.x = number(parts[2], -1f);
                 spec.y = number(parts[3], -1f);
                 spec.w = parts.length > 4 ? number(parts[4], 0.12f) : 0.12f;
@@ -216,44 +231,28 @@ public final class TouchButtons {
                 }
 
                 spec.alpha = Math.max(0.05f, Math.min(1f, spec.alpha));
-
-                String raw = parts[1];
-                String input = raw.toLowerCase(Locale.ROOT);
-
-                if (raw.regionMatches(true, 0, "cmd:", 0, 4) && raw.length() > 4) {
-                    // Runs a console command: an alias, a mod action, anything
-                    // the console can name. Press only.
-                    spec.command = raw.substring(4);
-                } else if (raw.regionMatches(true, 0, "hold:", 0, 5) && raw.length() > 5) {
-                    // Press runs the command, release runs the opposite one
-                    // (+attack / -attack), which is what a real button does.
-                    spec.command = raw.substring(5);
-                    spec.hold = true;
-                } else if (input.startsWith("mouse")) {
-                    try {
-                        int button = Integer.parseInt(input.substring(5));
-                        if (button < 1 || button > 3) {
-                            Log.w(TAG, "only mouse1..mouse3 are supported: " + line);
-                            continue;
-                        }
-                        spec.mouseButton = button;
-                    } catch (NumberFormatException e) {
-                        Log.w(TAG, "unknown mouse button: " + line);
-                        continue;
-                    }
-                } else {
-                    spec.keyCode = keyCode(input);
-                    if (spec.keyCode < 0) {
-                        Log.w(TAG, "unknown key '" + input + "': " + line);
-                        continue;
-                    }
-                }
-
                 specs.add(spec);
             }
         }
 
         return specs;
+    }
+
+    /**
+     * Hands the table to the engine, which owns what a press means. Inputs are
+     * validated there, so the same names the game's bind command accepts work.
+     */
+    private static void publish(List<Spec> specs) {
+        EngineBridge.run("uzdroid_button_reset");
+
+        for (Spec spec : specs) {
+            // ';' would split the command in the console parser, so it travels
+            // as '|' and the engine turns it back.
+            String input = spec.input.replace(';', '|');
+            EngineBridge.run(String.format(Locale.ROOT,
+                    "uzdroid_button %.4f %.4f %.4f %.4f %s %s",
+                    spec.x, spec.y, spec.w, spec.h, input, spec.label));
+        }
     }
 
     private static float number(String text, float fallback) {
@@ -262,59 +261,6 @@ public final class TouchButtons {
         } catch (NumberFormatException e) {
             return fallback;
         }
-    }
-
-    /** Key names a config file can use. Letters and digits are the fallback. */
-    private static int keyCode(String name) {
-        switch (name) {
-            case "esc": case "escape": return KeyEvent.KEYCODE_ESCAPE;
-            case "space": return KeyEvent.KEYCODE_SPACE;
-            case "enter": return KeyEvent.KEYCODE_ENTER;
-            case "tab": return KeyEvent.KEYCODE_TAB;
-            case "shift": return KeyEvent.KEYCODE_SHIFT_LEFT;
-            case "ctrl": case "control": return KeyEvent.KEYCODE_CTRL_LEFT;
-            case "alt": return KeyEvent.KEYCODE_ALT_LEFT;
-            case "up": return KeyEvent.KEYCODE_DPAD_UP;
-            case "down": return KeyEvent.KEYCODE_DPAD_DOWN;
-            case "left": return KeyEvent.KEYCODE_DPAD_LEFT;
-            case "right": return KeyEvent.KEYCODE_DPAD_RIGHT;
-            case "comma": return KeyEvent.KEYCODE_COMMA;
-            case "period": return KeyEvent.KEYCODE_PERIOD;
-            case "minus": return KeyEvent.KEYCODE_MINUS;
-            case "equals": return KeyEvent.KEYCODE_EQUALS;
-            case "lbracket": return KeyEvent.KEYCODE_LEFT_BRACKET;
-            case "rbracket": return KeyEvent.KEYCODE_RIGHT_BRACKET;
-            case "backspace": return KeyEvent.KEYCODE_DEL;
-            case "pageup": return KeyEvent.KEYCODE_PAGE_UP;
-            case "pagedown": return KeyEvent.KEYCODE_PAGE_DOWN;
-            case "home": return KeyEvent.KEYCODE_MOVE_HOME;
-            case "end": return KeyEvent.KEYCODE_MOVE_END;
-            default:
-                break;
-        }
-
-        if (name.length() > 1 && name.charAt(0) == 'f') {
-            try {
-                int n = Integer.parseInt(name.substring(1));
-                if (n >= 1 && n <= 12) {
-                    return KeyEvent.KEYCODE_F1 + (n - 1);
-                }
-            } catch (NumberFormatException ignored) {
-                // fall through
-            }
-        }
-
-        if (name.length() == 1) {
-            char c = name.charAt(0);
-            if (c >= 'a' && c <= 'z') {
-                return KeyEvent.KEYCODE_A + (c - 'a');
-            }
-            if (c >= '0' && c <= '9') {
-                return KeyEvent.KEYCODE_0 + (c - '0');
-            }
-        }
-
-        return -1;
     }
 
     private static void writeTemplate(File file) {
@@ -331,10 +277,8 @@ public final class TouchButtons {
             "# input  - a key name, mouse1 / mouse2 / mouse3, cmd:<console\n" +
             "#          command>, or hold:<+command> to also run the opposite\n" +
             "#          command when the button is released\n" +
-            "#          keys: a-z, 0-9, space, enter, esc, tab, shift, ctrl, alt,\n" +
-            "#                up, down, left, right, f1-f12, comma, period, minus,\n" +
-            "#                equals, lbracket, rbracket, backspace, pageup,\n" +
-            "#                pagedown, home, end\n" +
+            "#          key names are the ones the game's own bind command takes,\n" +
+            "#          e.g. f, space, Escape, Tab, [, ], F3, Up, Down, Ctrl\n" +
             "# x, y   - top left corner, as a fraction of the screen (0..1)\n" +
             "# width  - default 0.12\n" +
             "# height - default 0.14\n" +
@@ -395,6 +339,12 @@ public final class TouchButtons {
 
             requestLayout();
             invalidate();
+        }
+
+        void setPressed(int index, boolean pressed) {
+            if (index >= 0 && index < buttons.size()) {
+                buttons.get(index).setPressedState(pressed);
+            }
         }
 
         void setStickImages(Bitmap frame, Bitmap knob) {
@@ -465,7 +415,10 @@ public final class TouchButtons {
         }
     }
 
-    /** A single round button that holds one input while pressed. */
+    /**
+     * A single button. It does not handle touch: the engine owns the fingers,
+     * so a held button never starves the look gesture on the other thumb.
+     */
     private static final class Btn extends View {
         final Spec spec;
 
@@ -475,15 +428,13 @@ public final class TouchButtons {
         private final Paint image = new Paint(Paint.FILTER_BITMAP_FLAG);
         private final RectF shape = new RectF();
 
-        private boolean pressed;
-        private boolean sent;
-
         Btn(Context context, Spec spec) {
             super(context);
             this.spec = spec;
 
             setFocusable(false);
             setFocusableInTouchMode(false);
+            setClickable(false);
 
             fill.setStyle(Paint.Style.FILL);
             fill.setColor(Color.BLACK);
@@ -495,13 +446,22 @@ public final class TouchButtons {
             text.setFakeBoldText(true);
         }
 
+        void setPressedState(boolean pressed) {
+            if (spec.pressed != pressed) {
+                spec.pressed = pressed;
+                invalidate();
+            }
+        }
+
         @Override
         protected void onDraw(Canvas canvas) {
             if (spec.bitmap != null) {
-                // The drawing defines the look; alpha still comes from the file
-                // so buttons can be made see-through as a group.
                 image.setAlpha((int) (Math.min(1f, spec.alpha * 2f) * 255));
                 canvas.drawBitmap(spec.bitmap, null, shape, image);
+                if (spec.pressed) {
+                    fill(spec.alpha * 1.4f);
+                    canvas.drawRoundRect(shape, radius(), radius(), fill);
+                }
                 return;
             }
 
@@ -511,9 +471,8 @@ public final class TouchButtons {
             fill.setAlpha((int) (spec.alpha * 255));
             stroke.setAlpha((int) (Math.min(1f, spec.alpha * 2f) * 255));
 
-            float radius = Math.min(shape.width(), shape.height()) * 0.5f;
-            canvas.drawRoundRect(shape, radius, radius, fill);
-            canvas.drawRoundRect(shape, radius, radius, stroke);
+            canvas.drawRoundRect(shape, radius(), radius(), fill);
+            canvas.drawRoundRect(shape, radius(), radius(), stroke);
 
             text.setTextSize(Math.max(10f, Math.min(shape.height() * 0.34f, shape.width() * 0.42f)));
             text.setAlpha((int) (Math.min(1f, spec.alpha * 2.5f) * 255));
@@ -521,79 +480,18 @@ public final class TouchButtons {
             float baseline = shape.centerY() - (text.descent() + text.ascent()) * 0.5f;
             canvas.drawText(spec.label, shape.centerX(), baseline, text);
 
-            if (pressed) {
-                fill.setAlpha((int) (Math.min(1f, spec.alpha * 1.6f) * 255));
-                canvas.drawRoundRect(shape, radius, radius, fill);
+            if (spec.pressed) {
+                fill(spec.alpha * 1.8f);
+                canvas.drawRoundRect(shape, radius(), radius(), fill);
             }
         }
 
-        @Override
-        public boolean onTouchEvent(MotionEvent event) {
-            switch (event.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN:
-                    pressed = true;
-                    invalidate();
-                    send(true);
-                    return true;
-
-                case MotionEvent.ACTION_UP:
-                case MotionEvent.ACTION_CANCEL:
-                    if (pressed) {
-                        pressed = false;
-                        invalidate();
-                        send(false);
-                    }
-                    return true;
-
-                default:
-                    return true;
-            }
+        private float radius() {
+            return Math.min(shape.width(), shape.height()) * 0.5f;
         }
 
-        /** "+attack" becomes "-attack"; anything else has no opposite. */
-        private static String opposite(String command) {
-            if (command.startsWith("+")) {
-                return "-" + command.substring(1);
-            }
-            if (command.startsWith("-")) {
-                return "+" + command.substring(1);
-            }
-            return "";
-        }
-
-        private void send(boolean down) {
-            if (down == sent) {
-                return;
-            }
-            sent = down;
-
-            float cx = getX() + getWidth() * 0.5f;
-            float cy = getY() + getHeight() * 0.5f;
-
-            try {
-                if (spec.command != null) {
-                    if (down) {
-                        EngineBridge.run(spec.command);
-                    } else if (spec.hold) {
-                        String opposite = opposite(spec.command);
-                        if (!opposite.isEmpty()) {
-                            EngineBridge.run(opposite);
-                        }
-                    }
-                } else if (spec.mouseButton > 0) {
-                    int state = down ? (1 << (spec.mouseButton - 1)) : 0;
-                    SDLActivity.onNativeMouse(state,
-                            down ? MotionEvent.ACTION_DOWN : MotionEvent.ACTION_UP,
-                            cx, cy, false);
-                } else if (down) {
-                    SDLActivity.onNativeKeyDown(spec.keyCode);
-                } else {
-                    SDLActivity.onNativeKeyUp(spec.keyCode);
-                }
-            } catch (UnsatisfiedLinkError e) {
-                // SDL is not up yet; nothing to send to.
-                Log.w(TAG, "input dropped, SDL not loaded", e);
-            }
+        private void fill(float alpha) {
+            fill.setAlpha((int) (Math.min(1f, alpha) * 255));
         }
     }
 }

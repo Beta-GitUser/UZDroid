@@ -33,11 +33,13 @@
 #include <algorithm>
 #include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "basics.h"
 #include "c_buttons.h"
 #include "c_cvars.h"
+#include "c_bind.h"
 #include "c_dispatch.h"
 #include "d_eventbase.h"
 #include "d_gui.h"
@@ -431,6 +433,15 @@ namespace
 		       ((kmod & KMOD_ALT) ? GKM_ALT : 0);
 	}
 
+	void TouchPostKey (int key, bool down)
+	{
+		event_t event = { 0,0,0,0,0,0,0 };
+
+		event.type = down ? EV_KeyDown : EV_KeyUp;
+		event.data1 = key;
+		D_PostEvent(&event);
+	}
+
 	void TouchPostGui (EGUIEvent subtype, int x, int y)
 	{
 		if (screen == nullptr)
@@ -448,6 +459,164 @@ namespace
 	}
 
 
+
+	//--- on screen buttons ----------------------------------------------------
+	//
+	// The buttons live here rather than in the overlay because Android gives a
+	// view that owns the first finger the whole gesture: a held button would
+	// starve every other finger, and looking around while firing is the point.
+	// Here every finger is just a finger, and the button is a rectangle.
+
+	struct FTouchButton
+	{
+		float x = 0, y = 0, w = 0, h = 0;	// fractions of the window
+		int key = -1;						// GZDoom key code, or
+		int mouse = 0;						// 1..3, or
+		FString command;					// a console command
+		bool hold = false;					// run the opposite on release
+		SDL_FingerID finger = 0;
+		bool down = false;
+	};
+
+	TArray<FTouchButton> TouchButtons;
+
+	int TouchKeyFromName (const char *name)
+	{
+		// The same names the bind command takes, plus a "#123" escape hatch.
+		if (name[0] == '#' && name[1] != 0)
+			return atoi(name + 1);
+
+		for (int i = 0; i < NUM_KEYS; i++)
+		{
+			if (KeyNames[i] != nullptr && !stricmp(KeyNames[i], name))
+				return i;
+		}
+		return -1;
+	}
+
+	void TouchPushButtonState (int index, bool down)
+	{
+#ifdef __ANDROID__
+		static jmethodID method = nullptr;
+
+		JNIEnv *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+		jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+
+		if (env == nullptr || activity == nullptr)
+			return;
+
+		jclass cls = env->GetObjectClass(activity);
+
+		if (method == nullptr)
+		{
+			method = env->GetMethodID(cls, "onTouchButtonPressed", "(IZ)V");
+		}
+
+		if (method != nullptr)
+		{
+			env->CallVoidMethod(activity, method, index, down ? JNI_TRUE : JNI_FALSE);
+		}
+
+		if (env->ExceptionCheck())
+		{
+			env->ExceptionClear();
+		}
+
+		env->DeleteLocalRef(cls);
+		env->DeleteLocalRef(activity);
+#else
+		(void)index; (void)down;
+#endif
+	}
+
+	FString TouchOpposite (const FString &command)
+	{
+		// "+attack" and "-attack" are two halves of one button.
+		if (command.Len() > 0 && (command[0] == '+' || command[0] == '-'))
+		{
+			FString flipped;
+			flipped.Format("%c%s", (command[0] == '+') ? '-' : '+', command.GetChars() + 1);
+			return flipped;
+		}
+		return FString();
+	}
+
+	void TouchButtonSend (unsigned index, bool down)
+	{
+		FTouchButton &button = TouchButtons[index];
+
+		if (button.down == down)
+			return;
+
+		button.down = down;
+
+		if (button.command.IsNotEmpty())
+		{
+			if (down)
+			{
+				AddCommandString(button.command);
+			}
+			else if (button.hold)
+			{
+				FString opposite = TouchOpposite(button.command);
+				if (opposite.IsNotEmpty())
+				{
+					AddCommandString(opposite);
+				}
+			}
+		}
+		else if (button.mouse > 0)
+		{
+			TouchPostKey(KEY_MOUSE1 + button.mouse - 1, down);
+		}
+		else if (button.key >= 0)
+		{
+			TouchPostKey(button.key, down);
+		}
+
+		TouchPushButtonState((int)index, down);
+	}
+
+	int TouchButtonAt (float fx, float fy)
+	{
+		for (unsigned i = 0; i < TouchButtons.Size(); i++)
+		{
+			const FTouchButton &button = TouchButtons[i];
+
+			if (fx >= button.x && fx <= button.x + button.w &&
+				fy >= button.y && fy <= button.y + button.h)
+			{
+				return (int)i;
+			}
+		}
+		return -1;
+	}
+
+	bool TouchButtonsRelease (SDL_FingerID finger)
+	{
+		bool owned = false;
+
+		for (unsigned i = 0; i < TouchButtons.Size(); i++)
+		{
+			if (TouchButtons[i].down && TouchButtons[i].finger == finger)
+			{
+				TouchButtonSend(i, false);
+				owned = true;
+			}
+		}
+		return owned;
+	}
+
+	void TouchButtonsReleaseAll ()
+	{
+		for (unsigned i = 0; i < TouchButtons.Size(); i++)
+		{
+			if (TouchButtons[i].down)
+			{
+				TouchButtonSend(i, false);
+			}
+		}
+	}
 
 	//--- the menu pointer -----------------------------------------------------
 
@@ -587,6 +756,7 @@ namespace
 
 	void TouchReset ()
 	{
+		TouchButtonsReleaseAll();
 		TouchStickRelease();
 		TouchForget(LookFinger);
 		TouchForget(MoveFinger);
@@ -658,6 +828,20 @@ namespace
 
 		const float x = tf.x * TouchWindowW;
 		const float y = tf.y * TouchWindowH;
+
+		// A thumb on a button does not stop the other thumb from looking: the
+		// button is a rectangle here, not a view that owns the gesture.
+		if (!TouchUiContext())
+		{
+			const int index = TouchButtonAt(tf.x, tf.y);
+
+			if (index >= 0 && !TouchButtons[index].down)
+			{
+				TouchButtons[index].finger = tf.fingerId;
+				TouchButtonSend(index, true);
+				return;
+			}
+		}
 
 		FTrackedFinger *slot = nullptr;
 
@@ -757,6 +941,9 @@ namespace
 		if (!touch_enable)
 			return;
 
+		if (TouchButtonsRelease(tf.fingerId))
+			return;
+
 		if (MoveFinger.Down && MoveFinger.Id == tf.fingerId)
 		{
 			TouchStickRelease();
@@ -824,6 +1011,34 @@ namespace
 	}
 }
 
+// Called once when the engine starts pumping events: the overlay may have
+// pushed the button table before the native side was ready.
+void UZDroid_TouchReady ()
+{
+#ifdef __ANDROID__
+	JNIEnv *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+	jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+
+	if (env == nullptr || activity == nullptr)
+		return;
+
+	jclass cls = env->GetObjectClass(activity);
+	jmethodID method = env->GetMethodID(cls, "onTouchReady", "()V");
+
+	if (method != nullptr)
+	{
+		env->CallVoidMethod(activity, method);
+	}
+	if (env->ExceptionCheck())
+	{
+		env->ExceptionClear();
+	}
+
+	env->DeleteLocalRef(cls);
+	env->DeleteLocalRef(activity);
+#endif
+}
+
 // Any thread. Takes its own copy of the text.
 void UZDroid_QueueCommand (const char *command)
 {
@@ -857,6 +1072,67 @@ bool UZDroid_HandleEvent (const SDL_Event &sev)
 		delete[] command;
 	}
 	return true;
+}
+
+CCMD (uzdroid_button_reset)
+{
+	TouchButtons.Clear();
+}
+
+// Sent by the Android overlay once per line of touch-buttons.txt:
+//   uzdroid_button <x> <y> <w> <h> <input> <label>
+// The overlay only draws them; the engine decides what a press means, which is
+// also why a held button cannot swallow the other thumb's look gesture.
+CCMD (uzdroid_button)
+{
+	if (argv.argc() < 7)
+	{
+		Printf("uzdroid_button <x> <y> <w> <h> <input> <label>\n");
+		return;
+	}
+
+	FTouchButton button;
+
+	button.x = (float)atof(argv[1]);
+	button.y = (float)atof(argv[2]);
+	button.w = (float)atof(argv[3]);
+	button.h = (float)atof(argv[4]);
+
+	FString input = argv[5];
+
+	// '|' stands for ';' - a command chain cannot travel through the console
+	// parser as one argument otherwise.
+	input.Substitute("|", ";");
+
+	if (!strnicmp(input, "mouse", 5))
+	{
+		button.mouse = atoi(input.GetChars() + 5);
+		if (button.mouse < 1 || button.mouse > 3)
+		{
+			Printf("uzdroid_button: only mouse1..mouse3 are supported\n");
+			return;
+		}
+	}
+	else if (!strnicmp(input, "cmd:", 4))
+	{
+		button.command = input.GetChars() + 4;
+	}
+	else if (!strnicmp(input, "hold:", 5))
+	{
+		button.command = input.GetChars() + 5;
+		button.hold = true;
+	}
+	else
+	{
+		button.key = TouchKeyFromName(input.GetChars());
+		if (button.key < 0)
+		{
+			Printf("uzdroid_button: unknown input '%s'\n", input.GetChars());
+			return;
+		}
+	}
+
+	TouchButtons.Push(button);
 }
 
 CCMD (uzdroid_kbup)
@@ -900,7 +1176,15 @@ extern "C" JNIEXPORT void JNICALL Java_org_uzdoom_uzdroid_EngineBridge_exec
 
 void MessagePump (const SDL_Event &sev)
 {
+	static bool touchReady = false;
+
 	EnsureCommandEvent();
+
+	if (!touchReady)
+	{
+		touchReady = true;
+		UZDroid_TouchReady();
+	}
 
 	if (UZDroid_HandleEvent(sev))
 		return;

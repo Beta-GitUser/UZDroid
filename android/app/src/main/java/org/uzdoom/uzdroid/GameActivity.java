@@ -58,6 +58,16 @@ public class GameActivity extends SDLActivity {
         TouchButtons.onStick(originX, originY, dx, dy, active);
     }
 
+    /** The engine's input is up; send it the button table again. */
+    public void onTouchReady() {
+        TouchButtons.republish();
+    }
+
+    /** Which button the engine sees held, so the overlay can draw it pressed. */
+    public void onTouchButtonPressed(int index, boolean pressed) {
+        TouchButtons.onButtonPressed(index, pressed);
+    }
+
     /**
      * Called from the engine's input code when the menu (or the console)
      * takes over the pointer, and again when gameplay gets it back. Runs on
