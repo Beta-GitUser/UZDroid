@@ -1219,27 +1219,29 @@ CCMD (uzdroid_button)
 	// parser as one argument otherwise.
 	input.Substitute("|", ";");
 
-	if (!strnicmp(input, "mouse", 5))
+	const char *text = input.GetChars();
+
+	if (!strnicmp(text, "mouse", 5))
 	{
-		button.mouse = atoi(input.GetChars() + 5);
+		button.mouse = atoi(text + 5);
 		if (button.mouse < 1 || button.mouse > 3)
 		{
 			Printf("uzdroid_button: only mouse1..mouse3 are supported\n");
 			return;
 		}
 	}
-	else if (!strnicmp(input, "cmd:", 4))
+	else if (!strnicmp(text, "cmd:", 4))
 	{
-		button.command = input.GetChars() + 4;
+		button.command = text + 4;
 	}
-	else if (!strnicmp(input, "hold:", 5))
+	else if (!strnicmp(text, "hold:", 5))
 	{
-		button.command = input.GetChars() + 5;
+		button.command = text + 5;
 		button.hold = true;
 	}
 	else
 	{
-		button.key = TouchKeyFromName(input.GetChars());
+		button.key = TouchKeyFromName(text);
 		if (button.key < 0)
 		{
 			Printf("uzdroid_button: unknown input '%s'\n", input.GetChars());
