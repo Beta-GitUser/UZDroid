@@ -309,3 +309,18 @@ Handled by `-DANDROID` in the engine's CMake, no separate build tree:
 * Audio focus is not handled: other apps keep playing while the game runs. SDL
   pauses/resumes the OpenAL device with the activity lifecycle, which is enough
   to not lose sound on a phone call.
+
+## Sound and orientation
+
+The engine loads OpenAL at runtime instead of linking it. On Android the library
+is packaged as `libopenal.so` and the linker answers to that exact name only -
+there are no `libopenal.so.1` soname symlinks - so `oalsound.cpp` asks for
+`libopenal.so` there. The sound backend is openal-soft built by
+`android/scripts/build-openal.sh` with the OpenSL ES backend, since Android has
+no ALSA or PulseAudio.
+
+The game is landscape only. The manifest says so, but SDL asks Android for
+`SCREEN_ORIENTATION_FULL_USER` when no orientation hint is set, and that call
+beats the manifest and follows the system rotation lock. `hardware.cpp` sets
+`SDL_HINT_ORIENTATIONS` to the two landscape directions before the window is
+created, and `GameActivity.setOrientationBis` clamps whatever SDL asks for.

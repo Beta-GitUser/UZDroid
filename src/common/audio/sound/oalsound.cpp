@@ -71,6 +71,11 @@ CUSTOM_CVAR (Float, snd_superstereowidth, 0.45f, CVAR_ARCHIVE|CVAR_GLOBALCONFIG)
 
 #ifdef _WIN32
 #define OPENALLIB "soft_oal.dll"
+#elif defined(__ANDROID__)
+// Android has no soname symlinks: the library is packaged in the APK as
+// libopenal.so and the linker only answers to exactly that name. Asking for
+// libopenal.so.1 here is why the game came up with no sound.
+#define OPENALLIB "libopenal.so"
 #elif defined(__OpenBSD__)
 #define OPENALLIB "libopenal.so"
 #else
@@ -605,7 +610,7 @@ ALCdevice *OpenALSoundRenderer::InitDevice()
 	}
 	else
 	{
-		Printf(TEXTCOLOR_ORANGE"Failed to load soft_oal.dll\n");
+		Printf(TEXTCOLOR_ORANGE"Failed to load " OPENALLIB "\n");
 	}
 	return device;
 }

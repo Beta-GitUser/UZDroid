@@ -40,6 +40,19 @@ public class GameActivity extends SDLActivity {
         MousePresence.start(this);
     }
 
+    /**
+     * SDL asks for an orientation once it has a window. With no orientation hint
+     * it asks for SCREEN_ORIENTATION_FULL_USER, which follows the system
+     * rotation lock and beats android:screenOrientation in the manifest - so the
+     * game could come up in portrait. Clamping it here makes landscape
+     * unconditional whatever SDL decides.
+     */
+    @Override
+    public void setOrientationBis(int w, int h, boolean resizable, String hint) {
+        super.setOrientationBis(Math.max(w, h), Math.min(w, h), false,
+                "LandscapeLeft LandscapeRight");
+    }
+
     @Override
     protected void onResume() {
         super.onResume();

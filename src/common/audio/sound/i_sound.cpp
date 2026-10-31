@@ -273,7 +273,16 @@ void I_InitSound ()
 	{
 		I_CloseSound();
 		GSnd = new NullSoundRenderer;
+#ifndef NO_OPENAL
+		// Say which half failed: a missing library is a packaging problem, a
+		// device that will not open is a platform one.
+		if (!IsOpenALPresent())
+			Printf (TEXTCOLOR_RED"Sound init failed: no OpenAL library was found. Using nosound.\n");
+		else
+			Printf (TEXTCOLOR_RED"Sound init failed: OpenAL could not open a device. Using nosound.\n");
+#else
 		Printf (TEXTCOLOR_RED"Sound init failed. Using nosound.\n");
+#endif
 	}
 	snd_sfxvolume->Callback ();
 }

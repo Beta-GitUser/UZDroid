@@ -58,6 +58,13 @@ void I_InitGraphics ()
 #endif // __APPLE__
 	SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0");
 
+#ifdef __ANDROID__
+	// The game is landscape only. SDL asks Android for "full user" when this
+	// hint is missing, which hands the choice back to the system rotation and
+	// lets the window come up in portrait, so name the orientations it may use.
+	SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+#endif
+
 	if (SDL_InitSubSystem (SDL_INIT_VIDEO) < 0)
 	{
 		I_FatalError ("Could not initialize SDL video:\n%s\n", SDL_GetError());
