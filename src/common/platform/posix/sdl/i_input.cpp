@@ -617,14 +617,14 @@ namespace
 		{
 			if (down)
 			{
-				AddCommandString(button.command);
+				AddCommandString(button.command.GetChars());
 			}
 			else if (button.hold)
 			{
 				FString opposite = TouchOpposite(button.command);
 				if (opposite.IsNotEmpty())
 				{
-					AddCommandString(opposite);
+					AddCommandString(opposite.GetChars());
 				}
 			}
 		}
