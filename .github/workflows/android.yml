@@ -251,6 +251,13 @@ jobs:
             else
               echo "::error::assets/uzdoom.pk3 is missing from the APK - the engine will not start"
             fi
+            # Sound is optional, so say whether it made it in rather than letting
+            # a silent game be the first hint.
+            if unzip -l "$apk" 2>/dev/null | grep -q 'lib/arm64-v8a/libopenal.so'; then
+              echo "::notice::sound: libopenal.so packaged"
+            else
+              echo "::warning::libopenal.so is missing from the APK - the game will run with nosound"
+            fi
           done
           signer="$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1 || true)"
           if [ -n "$signer" ]; then
