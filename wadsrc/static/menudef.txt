@@ -787,6 +787,7 @@ OptionMenu "TouchOptions"
 	Title "Touch controls"
 	Option "Touch controls",	"touch_enable", "OnOff"
 	Slider "Look sensitivity",	"touch_sensitivity", 0.1, 4, 0.05, 2
+	Slider "Menu pointer speed",	"touch_cursor_speed", 0.25, 6, 0.05, 2
 	Slider "Move strip width",	"touch_movezone", 0.1, 0.8, 0.05, 2
 	Slider "Stick dead zone",	"touch_deadzone", 0, 0.8, 0.05, 2
 	StaticText ""

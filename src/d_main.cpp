@@ -107,6 +107,7 @@
 #include "startscreen.h"
 #include "swrenderer/r_swcolormaps.h"
 #include "teaminfo.h"
+#include "d_eventbase.h"
 #include "texturemanager.h"
 #include "types.h"
 #include "v_draw.h"
@@ -1083,6 +1084,48 @@ static void DrawRateStuff()
 	}
 }
 
+//==========================================================================
+//
+// Touch screens have no system cursor, so the menu has to draw one. It uses the
+// same picture the OS cursor would: vid_cursor, or the game's CursorPic (Daisy
+// for Doom, the blade for Strife), or "cursor" as the last resort.
+//
+//==========================================================================
+
+static void DrawTouchCursor()
+{
+	if (!TouchPointerPlaced)
+		return;
+
+	FString pic;
+
+	if (!stricmp(*vid_cursor, "None") && gameinfo.CursorPic.IsNotEmpty())
+	{
+		pic = gameinfo.CursorPic;
+	}
+	else
+	{
+		pic = *vid_cursor;
+	}
+
+	FGameTexture *tex = TexMan.GetGameTextureByName(pic.GetChars());
+
+	if (tex == nullptr || !tex->isValid())
+	{
+		tex = TexMan.GetGameTextureByName("cursor");
+	}
+	if (tex == nullptr || !tex->isValid())
+	{
+		return;
+	}
+
+	int16_t x = TouchPointerX;
+	int16_t y = TouchPointerY;
+	screen->ScaleCoordsFromWindow(x, y);
+
+	screen->DrawTexture(tex, x, y, TAG_DONE);
+}
+
 static void DrawOverlays()
 {
 	if(menuactive == MENU_GameplayMenu)
@@ -1095,6 +1138,12 @@ static void DrawOverlays()
 		C_DrawConsole ();
 		M_Drawer ();
 	}
+
+	if (menuactive != MENU_Off)
+	{
+		DrawTouchCursor();
+	}
+
 	DrawRateStuff();
 	if (!hud_toggled)
 		FStat::PrintStat (twod);
@@ -1432,6 +1481,7 @@ void D_Display ()
 				D_PageDrawer();
 				C_DrawConsole ();
 				M_Drawer ();
+				DrawTouchCursor();
 				End2DAndUpdate ();
 				return;
 

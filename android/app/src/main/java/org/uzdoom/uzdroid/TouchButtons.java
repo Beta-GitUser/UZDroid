@@ -138,6 +138,22 @@ public final class TouchButtons {
         }
     }
 
+    /**
+     * Menus and gameplay do not share controls: the overlay is hidden while a
+     * menu or the console owns the pointer. Called from the game thread.
+     */
+    public static void setUiContext(boolean ui) {
+        if (layer == null) {
+            return;
+        }
+        layer.post(() -> {
+            layer.setVisibility(ui ? View.INVISIBLE : View.VISIBLE);
+            if (ui) {
+                layer.setStick(0, 0, 0, 0, false);
+            }
+        });
+    }
+
     /** Called by the engine whenever the movement stick moves. Game thread. */
     public static void onStick(float originX, float originY, float dx, float dy, boolean active) {
         if (layer == null) {

@@ -53,6 +53,15 @@ public class GameActivity extends SDLActivity {
     }
 
     /**
+     * Called from the engine's input code when the menu (or the console)
+     * takes over the pointer, and again when gameplay gets it back. Runs on
+     * the game thread.
+     */
+    public void onTouchContext(boolean ui) {
+        TouchButtons.setUiContext(ui);
+    }
+
+    /**
      * SDL loads libraries in this order. The last one is the one that contains
      * the entry point, so "main" has to stay last - that is what makes SDL look
      * for libmain.so and SDL_main().

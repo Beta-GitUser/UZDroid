@@ -49,6 +49,12 @@ struct event_t
 	float 		y;			// mouse/joystick y move
 };
 
+// Where a touch-driven pointer last was, in window pixels. Touch screens have
+// no system cursor, so the menu has to draw one itself; desktop leaves Placed
+// false and keeps using the OS cursor.
+extern int TouchPointerX, TouchPointerY;
+extern bool TouchPointerPlaced;
+
 // Ignore minor mouse movements if it hasn't updated in a while.
 struct mousestate_t
 {

@@ -340,6 +340,9 @@ CUSTOM_CVARD (Bool, touch_enable, TOUCH_ENABLED_DEFAULT, CVAR_ARCHIVE | CVAR_GLO
 CVAR (Float, touch_sensitivity, 1.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 // Width of the movement strip, as a fraction of the window width.
 CVAR (Float, touch_movezone, 0.35f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+// How fast the menu pointer follows a drag. Separate from the look
+// sensitivity: a menu is dragged pixel by pixel, aiming is not.
+CVAR (Float, touch_cursor_speed, 2.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 // How far the stick must leave its origin before it moves, as a fraction of
 // its radius.
 CVAR (Float, touch_deadzone, 0.2f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
@@ -456,6 +459,10 @@ namespace
 		CursorX = TouchClamp(CursorX + dx, 0.f, float(TouchWindowW - 1));
 		CursorY = TouchClamp(CursorY + dy, 0.f, float(TouchWindowH - 1));
 
+		TouchPointerX = int(CursorX);
+		TouchPointerY = int(CursorY);
+		TouchPointerPlaced = true;
+
 		TouchPostGui(EV_GUI_MouseMove, int(CursorX), int(CursorY));
 	}
 
@@ -560,7 +567,7 @@ namespace
 		int x = 0, y = 0;
 
 		if (fabsf(dx) > dead)	x = (dx < 0) ? -1 : 1;
-		if (fabsf(dy) > dead)	y = (dy < 0) ? -1 : 1;	// up is forward
+		if (fabsf(dy) > dead)	y = (dy < 0) ? 1 : -1;	// up the screen is forward
 
 		TouchStickPush(x, y);
 		TouchStickVisuals();
@@ -588,6 +595,39 @@ namespace
 	bool TouchLastUiContext;
 	bool TouchContextKnown = false;
 
+	void TouchPushContext (bool ui)
+	{
+#ifdef __ANDROID__
+		static jmethodID method = nullptr;
+
+		JNIEnv *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+		jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+
+		if (env == nullptr || activity == nullptr)
+			return;
+
+		jclass cls = env->GetObjectClass(activity);
+
+		if (method == nullptr)
+		{
+			method = env->GetMethodID(cls, "onTouchContext", "(Z)V");
+		}
+
+		if (method != nullptr)
+		{
+			env->CallVoidMethod(activity, method, ui ? JNI_TRUE : JNI_FALSE);
+		}
+
+		if (env->ExceptionCheck())
+		{
+			env->ExceptionClear();
+		}
+
+		env->DeleteLocalRef(cls);
+		env->DeleteLocalRef(activity);
+#endif
+	}
+
 	void TouchUpdateContext ()
 	{
 		const bool ui = TouchUiContext();
@@ -597,6 +637,10 @@ namespace
 			TouchContextKnown = true;
 			TouchLastUiContext = ui;
 			TouchReset();
+
+			// A menu is not a gamepad: the overlay hides while the pointer is
+			// in charge, so a stray thumb cannot fire or move while browsing.
+			TouchPushContext(ui);
 		}
 	}
 
@@ -700,7 +744,7 @@ namespace
 		else
 		{
 			// Menu trackpad: move the pointer relative to where it already is.
-			TouchCursorMove(dx * touch_sensitivity, dy * touch_sensitivity);
+			TouchCursorMove(dx * touch_cursor_speed, dy * touch_cursor_speed);
 		}
 	}
 
