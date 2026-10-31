@@ -67,20 +67,36 @@ public final class TouchButtons {
 
         View layout = SDLActivity.getContentView();   // SDL's RelativeLayout
         if (!(layout instanceof ViewGroup)) {
+            // Not fatal: reload() tries again, which happens on every resume.
             Log.w(TAG, "no SDL layout yet, touch buttons not installed");
+            CrashLog.append(activity, "touch overlay: no SDL layout yet, retrying on resume");
             return;
         }
 
         layer = new Layer(activity);
+        CrashLog.append(activity, "touch overlay: added above the game surface");
         ((ViewGroup) layout).addView(layer, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        // The shipped layout and art have to be in place before the first read,
+        // otherwise the first launch would create an empty config and the
+        // defaults would never be copied.
+        try {
+            EnginePaths.ensureTouchData(activity, EnginePaths.root(activity));
+        } catch (IOException e) {
+            Log.w(TAG, "could not copy the Touch folder", e);
+        }
+
         reload(activity);
     }
 
     /** Re-reads the config and the images; called on resume. */
     public static void reload(Activity activity) {
         if (layer == null) {
-            return;
+            install(activity);       // retry: the layout may not have existed yet
+            if (layer == null) {
+                return;
+            }
         }
 
         File dir = new File(EnginePaths.root(activity), DIR);
@@ -115,6 +131,11 @@ public final class TouchButtons {
         layer.setStickImages(load(dir, "JoyFrame"), load(dir, "JoyKnob"));
 
         CrashLog.append(activity, "touch buttons: " + specs.size() + " from " + file.getAbsolutePath());
+
+        if (specs.isEmpty()) {
+            Log.w(TAG, "touch-buttons.txt produced no buttons; see the line formats in it");
+            CrashLog.append(activity, "touch buttons: none usable - check label/input/x/y per line");
+        }
     }
 
     /** Called by the engine whenever the movement stick moves. Game thread. */

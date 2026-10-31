@@ -1,0 +1,19 @@
+# Default touch layout.
+#
+# One button per line, whitespace separated:
+#
+#   label   input   x   y   [width] [height] [alpha]
+#
+# label  - drawn on the button, and the name of its image: Touch/<label>.png,
+#          scaled to fit. Without an image the label is drawn as text.
+# input  - a key name, mouse1 / mouse2 / mouse3, cmd:<console command>, or
+#          hold:<+command> to also run the opposite command on release
+# x, y   - top left corner, as a fraction of the screen
+# width  - default 0.12, height 0.14, alpha 0.4
+#
+# This file is only written when it is missing, so edit it freely.
+#
+# label        input             x      y      w      h      alpha
+ButtonPLHD     hold:+attack      0.86   0.62   0.13   0.19   0.55
+use            cmd:+use          0.75   0.62   0.10   0.14   0.45
+menu           cmd:menu_main     0.93   0.05   0.08   0.10   0.45
