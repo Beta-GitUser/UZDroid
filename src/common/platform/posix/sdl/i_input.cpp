@@ -351,6 +351,18 @@ namespace
 
 	FTouchGesture Touch;
 
+	// Budgeted so a long session cannot drown the console, but the first few
+	// gestures of a run always say what the engine decided.
+	void TouchLog(const char *what, int a = 0, int b = 0)
+	{
+		static int budget = 60;
+
+		if (budget <= 0)
+			return;
+		budget--;
+		Printf("IN touch %s (%d, %d)\n", what, a, b);
+	}
+
 	// Menus and the console own the pointer exactly when the engine says so;
 	// outside a level (title screen, intermission) taps should open the menu
 	// rather than fire.
@@ -474,6 +486,8 @@ namespace
 			{
 				TouchPostGuiMove(x, y);
 			}
+
+			TouchLog(TouchUiContext() ? "down ui" : "down game", int(x), int(y));
 		}
 		else
 		{
@@ -571,16 +585,19 @@ namespace
 
 		if (TouchUiContext())
 		{
+			TouchLog("tap ui", int(x), int(y));
 			TouchPostGuiButton(true, x, y);
 			TouchPostGuiButton(false, x, y);
 		}
 		else if (Touch.MaxFingers >= 2)
 		{
 			// Two-finger tap: alt fire, or whatever mouse2 is bound to.
+			TouchLog("tap game mouse2");
 			TouchPostClick(KEY_MOUSE2);
 		}
 		else
 		{
+			TouchLog("tap game mouse1");
 			TouchPostClick(KEY_MOUSE1);
 		}
 
