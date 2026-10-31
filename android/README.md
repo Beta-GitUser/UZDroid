@@ -53,15 +53,46 @@ menu    esc      0.94  0.04  0.08  0.10  0.45
 ```
 
 `x`, `y`, `width` and `height` are fractions of the screen, measured from the
-top left. Inputs are `mouse1`..`mouse3` or a key name (`a-z`, `0-9`, `space`,
-`enter`, `esc`, `tab`, `shift`, `ctrl`, `alt`, `up`, `down`, `left`, `right`,
-`f1`-`f12`, `comma`, `period`, `minus`, `equals`, `lbracket`, `rbracket`,
-`backspace`, `pageup`, `pagedown`, `home`, `end`).
+top left. There are three kinds of input:
 
-The buttons inject ordinary SDL key and mouse button events, so they are bound
-in *Options -> Customize Controls* like any real device. The file is re-read
-every time the game comes to the foreground, so edits apply without
-reinstalling.
+| input | what it does |
+|---|---|
+| `mouse1`..`mouse3`, or a key name | injects a real mouse button or key, bound in *Options -> Customize Controls* like any device |
+| `cmd:<command>` | runs a console command on press |
+| `hold:<+command>` | runs it on press and its opposite on release (`hold:+attack`) |
+
+Key names: `a-z`, `0-9`, `space`, `enter`, `esc`, `tab`, `shift`, `ctrl`, `alt`,
+`up`, `down`, `left`, `right`, `f1`-`f12`, `comma`, `period`, `minus`, `equals`,
+`lbracket`, `rbracket`, `backspace`, `pageup`, `pagedown`, `home`, `end`.
+
+Commands go through the same queue a bound key uses, so aliases, mod actions and
+`;`-separated chains all work - handy when a mod pack has more actions than a
+keyboard has keys:
+
+```
+attack   hold:+attack                  0.86  0.60  0.12  0.18  0.45
+console  cmd:toggleconsole             0.94  0.16  0.08  0.10  0.45
+keys     cmd:uzdroid_kbup              0.94  0.28  0.08  0.10  0.45
+```
+
+A command cannot contain spaces (the file is whitespace separated); wrap it in
+an alias first: `alias myaction "give all"`, then `cmd:myaction`.
+
+### On-screen keyboard
+
+The fork adds three commands for the Android soft keyboard:
+
+| command | effect |
+|---|---|
+| `uzdroid_kbup` | show it |
+| `uzdroid_kbdn` | hide it |
+| `uzdroid_kbtoggle` | toggle it |
+
+A console button that also raises the keyboard is therefore
+`cmd:toggleconsole;uzdroid_kbup`.
+
+The file is re-read every time the game comes to the foreground, so edits apply
+without reinstalling.
 
 The data folder is used through the engine's normal XDG variables, set right
 before the engine starts:

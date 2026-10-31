@@ -23,15 +23,21 @@
 */
 
 #include "sdl_include.h"
+
+#ifdef __ANDROID__
+#include <jni.h>
+#endif
 #include <assert.h>
 #include <math.h>
 #include <algorithm>
 #include <ctype.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "basics.h"
 #include "c_buttons.h"
 #include "c_cvars.h"
+#include "c_dispatch.h"
 #include "d_eventbase.h"
 #include "d_gui.h"
 #include "dikeys.h"
@@ -710,8 +716,114 @@ namespace
 	}
 }
 
+//===========================================================================
+//
+// Java -> console channel
+//
+// An on-screen button can run a console command instead of faking a key press.
+// That is the same path a bound key takes, so it reaches aliases, mod actions
+// and anything else the console can name - which matters once a mod pack brings
+// more actions than a keyboard has keys.
+//
+// The command is carried on an SDL event, because the Java UI does not run on
+// the thread that pumps events.
+//
+//===========================================================================
+
+namespace
+{
+	Uint32 CommandEventType = (Uint32)-1;
+
+	void EnsureCommandEvent ()
+	{
+		if (CommandEventType == (Uint32)-1)
+		{
+			CommandEventType = SDL_RegisterEvents(1);
+		}
+	}
+}
+
+// Any thread. Takes its own copy of the text.
+void UZDroid_QueueCommand (const char *command)
+{
+	if (command == nullptr || *command == 0 || CommandEventType == (Uint32)-1)
+		return;
+
+	SDL_Event sev;
+	memset(&sev, 0, sizeof(sev));
+	sev.type = CommandEventType;
+	sev.user.code = 0;
+	sev.user.data1 = new char[strlen(command) + 1];
+	strcpy(static_cast<char *>(sev.user.data1), command);
+
+	if (SDL_PushEvent(&sev) <= 0)
+	{
+		delete[] static_cast<char *>(sev.user.data1);
+	}
+}
+
+// Game thread. Returns true when the event was ours.
+bool UZDroid_HandleEvent (const SDL_Event &sev)
+{
+	if (CommandEventType == (Uint32)-1 || sev.type != CommandEventType)
+		return false;
+
+	char *command = static_cast<char *>(sev.user.data1);
+
+	if (command != nullptr)
+	{
+		AddCommandString(command);
+		delete[] command;
+	}
+	return true;
+}
+
+CCMD (uzdroid_kbup)
+{
+	SDL_StartTextInput();
+}
+
+CCMD (uzdroid_kbdn)
+{
+	SDL_StopTextInput();
+}
+
+CCMD (uzdroid_kbtoggle)
+{
+	if (SDL_IsTextInputActive())
+	{
+		SDL_StopTextInput();
+	}
+	else
+	{
+		SDL_StartTextInput();
+	}
+}
+
+#ifdef __ANDROID__
+extern "C" JNIEXPORT void JNICALL Java_org_uzdoom_uzdroid_EngineBridge_exec
+	(JNIEnv *env, jclass, jstring command)
+{
+	if (command == nullptr)
+		return;
+
+	const char *text = env->GetStringUTFChars(command, nullptr);
+
+	if (text != nullptr)
+	{
+		UZDroid_QueueCommand(text);
+		env->ReleaseStringUTFChars(command, text);
+	}
+}
+#endif
+
 void MessagePump (const SDL_Event &sev)
 {
+	EnsureCommandEvent();
+
+	if (UZDroid_HandleEvent(sev))
+		return;
+
 	TouchUpdateContext();
 
 	static int lastx = 0, lasty = 0;

@@ -93,7 +93,9 @@ public final class TouchButtons {
     private static final class Spec {
         String label;
         int keyCode = -1;        // Android key code, or
-        int mouseButton = 0;     // 1..3 for mouse1..mouse3
+        int mouseButton = 0;     // 1..3 for mouse1..mouse3, or
+        String command;          // a console command
+        boolean hold;            // press runs it, release runs its opposite
         float x, y, w, h, alpha;
     }
 
@@ -129,8 +131,19 @@ public final class TouchButtons {
 
                 spec.alpha = Math.max(0.05f, Math.min(1f, spec.alpha));
 
-                String input = parts[1].toLowerCase(Locale.ROOT);
-                if (input.startsWith("mouse")) {
+                String raw = parts[1];
+                String input = raw.toLowerCase(Locale.ROOT);
+
+                if (raw.regionMatches(true, 0, "cmd:", 0, 4) && raw.length() > 4) {
+                    // Runs a console command: an alias, a mod action, anything
+                    // the console can name. Press only.
+                    spec.command = raw.substring(4);
+                } else if (raw.regionMatches(true, 0, "hold:", 0, 5) && raw.length() > 5) {
+                    // Press runs the command, release runs the opposite one
+                    // (+attack / -attack), which is what a real button does.
+                    spec.command = raw.substring(5);
+                    spec.hold = true;
+                } else if (input.startsWith("mouse")) {
                     try {
                         int button = Integer.parseInt(input.substring(5));
                         if (button < 1 || button > 3) {
@@ -227,7 +240,9 @@ public final class TouchButtons {
             "#   label   input   x   y   [width] [height] [alpha]\n" +
             "#\n" +
             "# label  - text drawn on the button\n" +
-            "# input  - a key name, or mouse1 / mouse2 / mouse3\n" +
+            "# input  - a key name, mouse1 / mouse2 / mouse3, cmd:<console\n" +
+            "#          command>, or hold:<+command> to also run the opposite\n" +
+            "#          command when the button is released\n" +
             "#          keys: a-z, 0-9, space, enter, esc, tab, shift, ctrl, alt,\n" +
             "#                up, down, left, right, f1-f12, comma, period, minus,\n" +
             "#                equals, lbracket, rbracket, backspace, pageup,\n" +
@@ -243,6 +258,13 @@ public final class TouchButtons {
             "#   use     e        0.74  0.60  0.10  0.14  0.45\n" +
             "#   jump    space    0.74  0.78  0.10  0.14  0.45\n" +
             "#   menu    esc      0.94  0.04  0.08  0.10  0.45\n" +
+            "#\n" +
+            "# Commands are run by the console, the same way a bound key runs them,\n" +
+            "# so mod actions and aliases work without needing a spare key:\n" +
+            "#\n" +
+            "#   attack  hold:+attack          0.86  0.60  0.12  0.18  0.45\n" +
+            "#   console cmd:toggleconsole     0.94  0.16  0.08  0.10  0.45\n" +
+            "#   keys    cmd:uzdroid_kbup      0.94  0.28  0.08  0.10  0.45\n" +
             "#\n" +
             "# The keys arrive at the engine as a keyboard or mouse, so bind them in\n" +
             "# Options -> Customize Controls like any real input device.\n";
@@ -385,6 +407,17 @@ public final class TouchButtons {
             }
         }
 
+        /** "+attack" becomes "-attack"; anything else has no opposite. */
+        private static String opposite(String command) {
+            if (command.startsWith("+")) {
+                return "-" + command.substring(1);
+            }
+            if (command.startsWith("-")) {
+                return "+" + command.substring(1);
+            }
+            return "";
+        }
+
         private void send(boolean down) {
             if (down == sent) {
                 return;
@@ -395,7 +428,16 @@ public final class TouchButtons {
             float cy = getY() + getHeight() * 0.5f;
 
             try {
-                if (spec.mouseButton > 0) {
+                if (spec.command != null) {
+                    if (down) {
+                        EngineBridge.run(spec.command);
+                    } else if (spec.hold) {
+                        String opposite = opposite(spec.command);
+                        if (!opposite.isEmpty()) {
+                            EngineBridge.run(opposite);
+                        }
+                    }
+                } else if (spec.mouseButton > 0) {
                     int state = down ? (1 << (spec.mouseButton - 1)) : 0;
                     SDLActivity.onNativeMouse(state,
                             down ? MotionEvent.ACTION_DOWN : MotionEvent.ACTION_UP,
