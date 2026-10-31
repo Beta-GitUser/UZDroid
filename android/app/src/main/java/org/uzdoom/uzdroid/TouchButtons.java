@@ -29,6 +29,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.view.MotionEvent;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
@@ -59,13 +60,30 @@ public final class TouchButtons {
     private static final Layout GAME = new Layout("touch-buttons.txt", false);
     private static final Layout MENU = new Layout("touch-buttons-menu.txt", true);
 
-    private static boolean uiContext;
-    private static boolean editing;
+    private static volatile boolean uiContext;
+    private static volatile boolean editing;
     private static File touchDir;
 
+    /** The editor's own menu, shown on Back. */
+    private static final int PANEL_NONE = 0;
+    private static final int PANEL_MENU = 1;
+    private static final int PANEL_CREATE = 2;
+
+    private static volatile int panel = PANEL_NONE;
+
+    /** Delete armed from the menu: the next tapped button goes away. */
+    private static volatile boolean deleteArmed;
+
+    /** Already published, so dragging a button leaves no stray panel. */
+    private static volatile boolean menuPublished;
+
+    private static final String[] MENU_ROWS = {
+            "Create button", "Delete a button", "Exit editing",
+    };
+
     /**
-     * The editor palette. Labels are drawn, inputs are what a new button gets;
-     * any input the file understands can be listed here.
+     * What "Create button" offers. The label is drawn and names the image; the
+     * input is what the new button gets. Any input the file understands works.
      */
     private static final String[][] PALETTE = {
             {"Up", "Up"}, {"Dn", "Down"}, {"Lt", "Left"}, {"Rt", "Right"},
@@ -213,23 +231,6 @@ public final class TouchButtons {
         publish(MENU);
     }
 
-    /** Chips are drawn and hit-tested from the same numbers. */
-    private static float[] paletteRect(int index) {
-        return new float[]{0.02f + index * 0.075f, 0.02f, 0.07f, 0.09f};
-    }
-
-    /** Only in edit mode, and the engine only looks at them then too. */
-    private static void publishPalette() {
-        EngineBridge.run("uzdroid_palette_reset");
-
-        for (int i = 0; i < PALETTE.length; i++) {
-            float[] r = paletteRect(i);
-            EngineBridge.run(String.format(Locale.ROOT,
-                    "uzdroid_palette_entry %.4f %.4f %.4f %.4f %s %s",
-                    r[0], r[1], r[2], r[3], PALETTE[i][1], PALETTE[i][0]));
-        }
-    }
-
     private static void publish(Layout layout) {
         for (Spec spec : layout.specs) {
             // ';' would split the command in the console parser, so it travels
@@ -298,7 +299,101 @@ public final class TouchButtons {
         }
     }
 
-    /** A chip was tapped: the engine placed a new button, we remember it. */
+    // ---------------------------------------------------------------------
+    // Editor menu
+    // ---------------------------------------------------------------------
+
+    /**
+     * The Back button while editing. Back closes the menu, or opens it, and
+     * never leaves the editor with unsaved buttons.
+     *
+     * @return true when the press was ours; false sends Escape to the engine
+     *         instead, exactly as a keyboard would.
+     */
+    public static boolean handleBack() {
+        if (!editing) {
+            return false;
+        }
+
+        if (layer != null) {
+            layer.post(() -> {
+                if (panel != PANEL_NONE) {
+                    closePanel();
+                } else {
+                    openPanel(PANEL_MENU);
+                }
+            });
+        }
+        return true;
+    }
+
+    private static void openPanel(int which) {
+        panel = which;
+        setEnginePanel(true);
+
+        // Opening the menu cancels an armed delete: Back is how you get out of
+        // a bin you changed your mind about.
+        if (deleteArmed) {
+            deleteArmed = false;
+            EngineBridge.run("uzdroid_touch_delete 0");
+        }
+
+        if (layer != null) {
+            layer.invalidate();
+        }
+    }
+
+    private static void closePanel() {
+        panel = PANEL_NONE;
+        setEnginePanel(false);
+        if (layer != null) {
+            layer.invalidate();
+        }
+    }
+
+    /** While the menu is up the engine must not drag what is behind it. */
+    private static void setEnginePanel(boolean up) {
+        if (menuPublished == up) {
+            return;
+        }
+        menuPublished = up;
+        EngineBridge.run("uzdroid_touch_panel " + (up ? 1 : 0));
+    }
+
+    /** A row of the editor menu, or a chip of the create list, was tapped. */
+    private static void panelTapped(int index) {
+        if (panel == PANEL_MENU) {
+            switch (index) {
+                case 0:
+                    openPanel(PANEL_CREATE);
+                    break;
+                case 1:
+                    closePanel();
+                    deleteArmed = true;
+                    EngineBridge.run("uzdroid_touch_delete 1");
+                    if (layer != null) {
+                        layer.invalidate();
+                    }
+                    break;
+                case 2:
+                    closePanel();
+                    EngineBridge.run("uzdroid_touch_edit");   // engine toggles off
+                    break;
+                default:
+                    closePanel();
+                    break;
+            }
+            return;
+        }
+
+        if (panel == PANEL_CREATE && index >= 0 && index < PALETTE.length) {
+            closePanel();
+            EngineBridge.run(String.format(Locale.ROOT, "uzdroid_button_add %s %s",
+                    PALETTE[index][1].replace(';', '|'), PALETTE[index][0]));
+        }
+    }
+
+    /** The create list made a button: the engine placed it, we remember it. */
     public static void onButtonAdded(boolean ui, int index, String input, String label,
                                      float x, float y, float w, float h) {
         Layout layout = ui ? MENU : GAME;
@@ -322,7 +417,7 @@ public final class TouchButtons {
         }
     }
 
-    /** A button was dropped on the palette row: forget it and its line. */
+    /** The delete armed from the menu took a button: forget it and its line. */
     public static void onButtonRemoved(boolean ui, int index) {
         Layout layout = ui ? MENU : GAME;
 
@@ -336,6 +431,9 @@ public final class TouchButtons {
             layout.removedLines.add(spec.line);
         }
 
+        // The engine disarms after one delete, so this state is one-shot too.
+        deleteArmed = false;
+
         if (layout == active() && layer != null) {
             layer.post(TouchButtons::showActive);
         }
@@ -348,13 +446,18 @@ public final class TouchButtons {
         if (layer == null) {
             return;
         }
+        deleteArmed = false;
+        menuPublished = false;
+        panel = PANEL_NONE;
+
         layer.post(() -> {
             layer.setEditing(on);
-            if (on) {
-                publishPalette();
-            } else {
+            EngineBridge.run("uzdroid_touch_panel 0");
+            EngineBridge.run("uzdroid_touch_delete 0");
+            if (!on) {
                 save(active());
             }
+            layer.invalidate();
         });
     }
 
@@ -563,7 +666,12 @@ public final class TouchButtons {
 
         private final Paint imagePaint = new Paint(Paint.FILTER_BITMAP_FLAG);
         private final Paint editPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint gridPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint panelFill = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint panelStroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint panelText = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF scratch = new RectF();
+        private final RectF hitRect = new RectF();
         private boolean editingOutline;
 
         // Written by the game thread, read here.
@@ -575,6 +683,20 @@ public final class TouchButtons {
             setClipChildren(false);
             setWillNotDraw(false);   // the joystick and the edit outlines
             imagePaint.setAlpha(200);
+
+            gridPaint.setStyle(Paint.Style.STROKE);
+            gridPaint.setStrokeWidth(1f);
+            gridPaint.setColor(Color.WHITE);
+
+            panelFill.setStyle(Paint.Style.FILL);
+            panelFill.setColor(Color.argb(235, 18, 18, 22));
+            panelStroke.setStyle(Paint.Style.STROKE);
+            panelStroke.setStrokeWidth(2f);
+            panelStroke.setColor(Color.argb(220, 220, 220, 220));
+            panelText.setStyle(Paint.Style.FILL);
+            panelText.setColor(Color.WHITE);
+            panelText.setTextAlign(Paint.Align.CENTER);
+            panelText.setFakeBoldText(true);
         }
 
         void setButtonBackground(Bitmap plate) {
@@ -632,35 +754,7 @@ public final class TouchButtons {
             }
 
             if (editingOutline) {
-                // The chips the engine hit-tests, drawn from the same numbers.
-                editPaint.setStyle(Paint.Style.FILL);
-                editPaint.setColor(Color.BLACK);
-                editPaint.setAlpha(150);
-                editPaint.setTextAlign(Paint.Align.CENTER);
-                editPaint.setTextSize(getHeight() * 0.022f);
-                editPaint.setFakeBoldText(true);
-
-                for (int i = 0; i < PALETTE.length; i++) {
-                    float[] r = paletteRect(i);
-                    float left = r[0] * getWidth();
-                    float top = r[1] * getHeight();
-                    float right = left + r[2] * getWidth();
-                    float bottom = top + r[3] * getHeight();
-
-                    scratch.set(left, top, right, bottom);
-                    canvas.drawRoundRect(scratch, 10f, 10f, editPaint);
-
-                    editPaint.setStyle(Paint.Style.STROKE);
-                    editPaint.setColor(Color.WHITE);
-                    canvas.drawRoundRect(scratch, 10f, 10f, editPaint);
-                    editPaint.setStyle(Paint.Style.FILL);
-                    editPaint.setColor(Color.BLACK);
-
-                    editPaint.setColor(Color.WHITE);
-                    canvas.drawText(PALETTE[i][0], scratch.centerX(),
-                            scratch.centerY() + getHeight() * 0.008f, editPaint);
-                    editPaint.setColor(Color.BLACK);
-                }
+                drawGrid(canvas);
             }
 
             if (!stickActive || frame == null) {
@@ -682,6 +776,192 @@ public final class TouchButtons {
                 scratch.set(kx - kr, ky - kr, kx + kr, ky + kr);
                 canvas.drawBitmap(knob, null, scratch, imagePaint);
             }
+        }
+
+        /** A light grid, so buttons line up instead of only looking level. */
+        private void drawGrid(Canvas canvas) {
+            final int columns = 32;
+            final int rows = 18;
+
+            gridPaint.setAlpha(26);
+            for (int i = 1; i < columns; i++) {
+                float x = getWidth() * i / (float) columns;
+                canvas.drawLine(x, 0, x, getHeight(), gridPaint);
+            }
+            for (int j = 1; j < rows; j++) {
+                float y = getHeight() * j / (float) rows;
+                canvas.drawLine(0, y, getWidth(), y, gridPaint);
+            }
+
+            gridPaint.setAlpha(70);
+            canvas.drawLine(getWidth() * 0.5f, 0, getWidth() * 0.5f, getHeight(), gridPaint);
+            canvas.drawLine(0, getHeight() * 0.5f, getWidth(), getHeight() * 0.5f, gridPaint);
+        }
+
+        /** One row of the editor menu, centred. */
+        private void menuRowRect(int index, RectF out) {
+            float height = getHeight() * 0.075f;
+            float gap = getHeight() * 0.014f;
+            float width = getWidth() * 0.42f;
+
+            float total = MENU_ROWS.length * height + (MENU_ROWS.length - 1) * gap;
+            float top = (getHeight() - total) * 0.5f + index * (height + gap);
+            float left = (getWidth() - width) * 0.5f;
+
+            out.set(left, top, left + width, top + height);
+        }
+
+        /** One entry of the create list, in a grid of chips. */
+        private void chipRect(int index, RectF out) {
+            final int columns = 5;
+
+            int rows = (PALETTE.length + columns - 1) / columns;
+            float width = getWidth() * 0.15f;
+            float height = getHeight() * 0.10f;
+            float gapX = getWidth() * 0.014f;
+            float gapY = getHeight() * 0.022f;
+
+            float totalW = columns * width + (columns - 1) * gapX;
+            float totalH = rows * height + (rows - 1) * gapY;
+            float left = (getWidth() - totalW) * 0.5f;
+            float top = (getHeight() - totalH) * 0.5f;
+
+            int row = index / columns;
+            int column = index % columns;
+
+            float x = left + column * (width + gapX);
+            float y = top + row * (height + gapY);
+
+            out.set(x, y, x + width, y + height);
+        }
+
+        private void drawRow(Canvas canvas, RectF rect, String label) {
+            canvas.drawRoundRect(rect, rect.height() * 0.3f, rect.height() * 0.3f, panelFill);
+            canvas.drawRoundRect(rect, rect.height() * 0.3f, rect.height() * 0.3f, panelStroke);
+
+            panelText.setTextSize(rect.height() * 0.45f);
+            float baseline = rect.centerY() - (panelText.descent() + panelText.ascent()) * 0.5f;
+            canvas.drawText(label, rect.centerX(), baseline, panelText);
+        }
+
+        /**
+         * The editor's menu, drawn after the buttons so it is never behind one.
+         * A tap outside the rows or chips closes it.
+         */
+        private void drawEditorPanel(Canvas canvas) {
+            canvas.drawColor(Color.argb(150, 0, 0, 0));
+
+            if (panel == PANEL_MENU) {
+                menuRowRect(0, scratch);
+                float left = scratch.left;
+                float top = scratch.top;
+                menuRowRect(MENU_ROWS.length - 1, scratch);
+
+                scratch.set(left - getWidth() * 0.02f, top - getHeight() * 0.03f,
+                        scratch.right + getWidth() * 0.02f, scratch.bottom + getHeight() * 0.03f);
+                canvas.drawRoundRect(scratch, getHeight() * 0.02f, getHeight() * 0.02f,
+                        panelFill);
+                canvas.drawRoundRect(scratch, getHeight() * 0.02f, getHeight() * 0.02f,
+                        panelStroke);
+
+                for (int i = 0; i < MENU_ROWS.length; i++) {
+                    menuRowRect(i, scratch);
+                    drawRow(canvas, scratch, MENU_ROWS[i]);
+                }
+
+                panelText.setTextSize(getHeight() * 0.024f);
+                panelText.setAlpha(200);
+                menuRowRect(0, scratch);
+                canvas.drawText("Touch layout editor", getWidth() * 0.5f,
+                        scratch.top - getHeight() * 0.045f, panelText);
+                panelText.setAlpha(255);
+                return;
+            }
+
+            if (panel == PANEL_CREATE) {
+                for (int i = 0; i < PALETTE.length; i++) {
+                    chipRect(i, scratch);
+                    drawRow(canvas, scratch, PALETTE[i][0]);
+                }
+
+                panelText.setTextSize(getHeight() * 0.024f);
+                chipRect(0, scratch);
+                canvas.drawText("New button - tap outside to cancel", getWidth() * 0.5f,
+                        scratch.top - getHeight() * 0.035f, panelText);
+            }
+        }
+
+        private void drawDeleteHint(Canvas canvas) {
+            panelText.setTextSize(getHeight() * 0.03f);
+            scratch.set(getWidth() * 0.18f, getHeight() * 0.02f,
+                    getWidth() * 0.82f, getHeight() * 0.09f);
+            canvas.drawRoundRect(scratch, getHeight() * 0.01f, getHeight() * 0.01f, panelFill);
+            canvas.drawRoundRect(scratch, getHeight() * 0.01f, getHeight() * 0.01f, panelStroke);
+
+            float baseline = scratch.centerY() - (panelText.descent() + panelText.ascent()) * 0.5f;
+            canvas.drawText("Tap a button to delete it", scratch.centerX(), baseline, panelText);
+        }
+
+        @Override
+        protected void dispatchDraw(Canvas canvas) {
+            super.dispatchDraw(canvas);
+
+            if (!editingOutline) {
+                return;
+            }
+
+            if (panel != PANEL_NONE) {
+                drawEditorPanel(canvas);
+            } else if (deleteArmed) {
+                drawDeleteHint(canvas);
+            }
+        }
+
+        /** Which menu row or chip is under a point, or -1. */
+        private int panelHit(int x, int y) {
+            if (panel == PANEL_MENU) {
+                for (int i = 0; i < MENU_ROWS.length; i++) {
+                    menuRowRect(i, hitRect);
+                    if (hitRect.contains(x, y)) {
+                        return i;
+                    }
+                }
+                return -1;
+            }
+
+            if (panel == PANEL_CREATE) {
+                for (int i = 0; i < PALETTE.length; i++) {
+                    chipRect(i, hitRect);
+                    if (hitRect.contains(x, y)) {
+                        return i;
+                    }
+                }
+                return -1;
+            }
+
+            return -1;
+        }
+
+        /**
+         * Only the editor menu takes touches; everything else stays with the
+         * engine, which is why this returns false when no panel is up.
+         */
+        @Override
+        public boolean onTouchEvent(MotionEvent event) {
+            if (!editingOutline || panel == PANEL_NONE) {
+                return false;
+            }
+
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                int hit = panelHit((int) event.getX(), (int) event.getY());
+
+                if (hit < 0) {
+                    closePanel();
+                } else {
+                    panelTapped(hit);
+                }
+            }
+            return true;
         }
 
         @Override

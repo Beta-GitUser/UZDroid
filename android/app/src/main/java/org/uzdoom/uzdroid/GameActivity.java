@@ -14,6 +14,8 @@ package org.uzdoom.uzdroid;
 import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.KeyEvent;
+import android.view.View;
 
 import org.libsdl.app.SDLActivity;
 
@@ -30,6 +32,16 @@ public class GameActivity extends SDLActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        hideSystemBars();
+
+        // Sticky immersive only hides the bars until they are swiped; put them
+        // back as soon as Android shows them, so the nav bar never eats the
+        // bottom of the screen for long.
+        getWindow().getDecorView().setOnSystemUiVisibilityChangeListener(visibility -> {
+            if ((visibility & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) == 0) {
+                hideSystemBars();
+            }
+        });
 
         // SDL has just created its layout, so the button overlay can go on top
         // of the surface. It is empty until touch-buttons.txt says otherwise.
@@ -53,9 +65,51 @@ public class GameActivity extends SDLActivity {
                 "LandscapeLeft LandscapeRight");
     }
 
+    /**
+     * The game owns the whole screen: no status bar, no navigation bar. SDL
+     * only does this when the window goes fullscreen, and until now the bars
+     * stayed put and took a strip of the play area with them.
+     */
+    private void hideSystemBars() {
+        View decor = getWindow().getDecorView();
+        decor.setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        | View.SYSTEM_UI_FLAG_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+
+        if (hasFocus) {
+            hideSystemBars();       // something else may have shown them
+        }
+    }
+
+    /**
+     * Back is the Escape key: in the game it opens and closes the menu exactly
+     * like the keyboard would. The one exception is the touch layout editor,
+     * which uses Back for its own menu - otherwise there would be no way out
+     * of it with the on-screen controls.
+     */
+    @Override
+    public void onBackPressed() {
+        if (TouchButtons.handleBack()) {
+            return;
+        }
+
+        SDLActivity.onNativeKeyDown(KeyEvent.KEYCODE_ESCAPE);
+        SDLActivity.onNativeKeyUp(KeyEvent.KEYCODE_ESCAPE);
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
+        hideSystemBars();
         // Re-read the file every time we come back, so an edit applies without
         // reinstalling anything.
         TouchButtons.reload(this);

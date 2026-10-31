@@ -528,34 +528,14 @@ namespace
 		return button.key >= 0;
 	}
 
-	//--- the editor palette ---------------------------------------------------
+	//--- edit mode -----------------------------------------------------------
 	//
-	// A row of chips that only exists in edit mode: tap one to place a new
-	// button, drag an existing one onto the row to throw it away.
+	// The overlay draws the editor's own menu and owns those taps; while it is
+	// up this stays set so a finger cannot also drag a button behind it. A
+	// delete is armed until one button has been tapped.
 
-	struct FTouchPaletteEntry
-	{
-		float x = 0, y = 0, w = 0, h = 0;
-		FString input;
-		FString label;
-	};
-
-	TArray<FTouchPaletteEntry> TouchPalette;
-
-	int TouchPaletteAt (float fx, float fy)
-	{
-		for (unsigned i = 0; i < TouchPalette.Size(); i++)
-		{
-			const FTouchPaletteEntry &entry = TouchPalette[i];
-
-			if (fx >= entry.x && fx <= entry.x + entry.w &&
-				fy >= entry.y && fy <= entry.y + entry.h)
-			{
-				return (int)i;
-			}
-		}
-		return -1;
-	}
+	bool TouchEditPanel = false;
+	bool TouchEditDelete = false;
 
 	// Java keeps one list per layout, so it needs the index within that layout.
 	int TouchButtonLocalIndex (int index)
@@ -635,7 +615,7 @@ namespace
 #endif
 	}
 
-	void TouchPushButtonAdded (int localIndex, const FTouchButton &button)
+	void TouchPushButtonAdded (int localIndex, const FTouchButton &button, const char *labelOverride = nullptr)
 	{
 #ifdef __ANDROID__
 		JNIEnv *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
@@ -672,6 +652,11 @@ namespace
 				label = inputText;
 			}
 
+			// A button made from the editor's list is named by that list, not
+			// by its input: "Jump" reads better than "space".
+			if (labelOverride != nullptr && *labelOverride != '\0')
+				label = labelOverride;
+
 			jstring input = env->NewStringUTF(inputText.GetChars());
 			jstring labelRef = env->NewStringUTF(label.GetChars());
 
@@ -689,7 +674,7 @@ namespace
 		env->DeleteLocalRef(cls);
 		env->DeleteLocalRef(activity);
 #else
-		(void)localIndex; (void)button;
+		(void)localIndex; (void)button; (void)labelOverride;
 #endif
 	}
 
@@ -1058,23 +1043,23 @@ namespace
 		// resizes it from the bottom right corner), nothing fires meanwhile.
 		if (TouchEditing)
 		{
-			const int palette = TouchPaletteAt(tf.x, tf.y);
+			// The overlay's menu is up, so this finger belongs to it.
+			if (TouchEditPanel)
+				return;
 
-			if (palette >= 0)
+			if (TouchEditDelete)
 			{
-				// Tap a chip to put a new button in the middle of the screen.
-				FTouchButton button;
+				const int index = TouchButtonAt(TouchUiContext(), tf.x, tf.y);
 
-				button.ui = TouchUiContext();
-				button.w = 0.11f;
-				button.h = 0.14f;
-				button.x = 0.5f - button.w * 0.5f;
-				button.y = 0.42f - button.h * 0.5f;
+				TouchEditDelete = false;
 
-				if (TouchParseInput(TouchPalette[palette].input.GetChars(), button))
+				if (index >= 0)
 				{
-					TouchButtons.Push(button);
-					TouchPushButtonAdded(TouchButtonLocalIndex((int)TouchButtons.Size() - 1), button);
+					const bool ui = TouchButtons[index].ui;
+					const int local = TouchButtonLocalIndex(index);
+
+					TouchButtons.Delete(index);
+					TouchPushButtonRemoved(ui, local);
 				}
 				return;
 			}
@@ -1238,16 +1223,6 @@ namespace
 		{
 			if (TouchEditIndex >= 0 && TouchEditFinger == tf.fingerId)
 			{
-				// Dropped on the palette row: that is the bin.
-				if (TouchPaletteAt(tf.x, tf.y) >= 0)
-				{
-					const bool ui = TouchButtons[TouchEditIndex].ui;
-					const int local = TouchButtonLocalIndex(TouchEditIndex);
-
-					TouchButtons.Delete(TouchEditIndex);
-					TouchPushButtonRemoved(ui, local);
-				}
-
 				TouchEditIndex = -1;
 				TouchEditResizing = false;
 			}
@@ -1387,38 +1362,68 @@ bool UZDroid_HandleEvent (const SDL_Event &sev)
 	return true;
 }
 
-CCMD (uzdroid_palette_reset)
+// uzdroid_touch_panel <0|1>
+// The overlay's editor menu is up: it owns the fingers, so nothing underneath
+// may be dragged or resized until it closes.
+CCMD (uzdroid_touch_panel)
 {
-	TouchPalette.Clear();
+	TouchEditPanel = argv.argc() > 1 && atoi(argv[1]) != 0;
+	TouchEditIndex = -1;
 }
 
-// uzdroid_palette_entry <x> <y> <w> <h> <input> <label>
-// The overlay draws the chips; the engine owns the taps on them.
-CCMD (uzdroid_palette_entry)
+// uzdroid_touch_delete <0|1>
+// Arm the bin: the next tap on a button throws it away.
+CCMD (uzdroid_touch_delete)
 {
-	if (argv.argc() < 7)
+	TouchEditDelete = argv.argc() > 1 && atoi(argv[1]) != 0;
+	TouchEditIndex = -1;
+}
+
+// uzdroid_button_add <input> [label]
+// The editor's create list calls this. The button lands in the middle of the
+// screen, ready to be dragged where it belongs.
+CCMD (uzdroid_button_add)
+{
+	if (argv.argc() < 2)
+	{
+		Printf ("uzdroid_button_add <input> [label]\n");
+		return;
+	}
+	if (!TouchEditing)
 		return;
 
-	FTouchPaletteEntry entry;
+	FString input = argv[1];
+	input.Substitute("|", ";");
 
-	entry.x = (float)atof(argv[1]);
-	entry.y = (float)atof(argv[2]);
-	entry.w = (float)atof(argv[3]);
-	entry.h = (float)atof(argv[4]);
-	entry.input = argv[5];
-	entry.label = argv[6];
+	FTouchButton button;
 
-	TouchPalette.Push(entry);
+	if (!TouchParseInput(input.GetChars(), button))
+	{
+		Printf ("uzdroid_button_add: unknown input '%s'\n", input.GetChars());
+		return;
+	}
+
+	button.ui = TouchUiContext();
+	button.w = 0.12f;
+	button.h = 0.15f;
+	button.x = 0.5f - button.w * 0.5f;
+	button.y = 0.42f - button.h * 0.5f;
+
+	TouchButtons.Push(button);
+	TouchPushButtonAdded(TouchButtonLocalIndex((int)TouchButtons.Size() - 1), button,
+		argv.argc() > 2 ? argv[2] : nullptr);
 }
 
 CCMD (uzdroid_touch_edit)
 {
 	TouchEditing = !TouchEditing;
 	TouchEditIndex = -1;
+	TouchEditPanel = false;
+	TouchEditDelete = false;
 	TouchStickRelease();
 
 	TouchPushEditMode(TouchEditing);
-	Printf("Touch layout editing %s: drag a button to move it.\n", TouchEditing ? "on" : "off");
+	Printf("Touch layout editing %s: drag a button to move it, Back for the menu.\n", TouchEditing ? "on" : "off");
 }
 
 CCMD (uzdroid_button_reset)

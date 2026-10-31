@@ -138,10 +138,21 @@ leaving the mode writes the layout back - only the button lines change, so
 comments and hand edits survive. It edits the layout that is currently on
 screen, so open a menu first to arrange the menu buttons.
 
-A palette row appears along the top while editing: tapping a chip adds that
-input as a new button in the middle of the screen (move it where you want it),
-and dragging a button onto the row throws it away. New and removed buttons are
-written to the file when the mode is left. A button's image is `Touch/<label>.png` - a line starting
+While editing, a grid is drawn over the screen so buttons line up, and **Back**
+opens the editor's own menu:
+
+* *Create button* - a list of inputs; tapping one adds it as a new button in the
+  middle of the screen, ready to be dragged where it belongs.
+* *Delete a button* - arms the bin; the next button tapped is removed.
+* *Exit editing* - saves the layout and goes back to the game.
+
+Back closes the menu again, and a tap outside it does the same. New and removed
+buttons are written to the file when the mode is left, so nothing is lost by
+opening the menu.
+
+Outside the editor, Back *is* Escape: it opens and closes the menu exactly like a
+keyboard would. The game also runs immersive - the status and navigation bars are
+hidden - so the play area is the whole screen. A button's image is `Touch/<label>.png` - a line starting
 `fire1` uses `fire1.png`.
 
 The game runs in landscape (the activity asks for `sensorLandscape`), so the
