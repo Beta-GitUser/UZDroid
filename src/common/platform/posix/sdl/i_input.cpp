@@ -320,11 +320,11 @@ CUSTOM_CVARD(Bool, touch_enable, TOUCH_ENABLED_DEFAULT, CVAR_ARCHIVE | CVAR_GLOB
 {
 	// SDL would otherwise turn every touch into a synthetic mouse first, and
 	// then every tap would arrive twice.
-	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, touch_enable ? "0" : "1");
+	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, *touch_enable ? "0" : "1");
 }
 
-CUSTOM_CVARD(Float, touch_sensitivity, 1.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG,
-	"Touch look sensitivity multiplier (the mouse sensitivity settings still apply on top)")
+// The mouse sensitivity cvars are applied by PostMouseMove() on top of this.
+CVAR(Float, touch_sensitivity, 1.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 namespace
 {
