@@ -1127,7 +1127,9 @@ static void DrawTouchCursor()
 	int16_t y = TouchPointerY;
 	screen->ScaleCoordsFromWindow(x, y);
 
-	screen->DrawTexture(tex, x, y, TAG_DONE);
+	// Menus draw through the 2D drawer in screen pixels, and so does this, so
+	// the picture lands exactly where taps are tested.
+	DrawTexture(twod, tex, x, y, TAG_DONE);
 }
 
 static void DrawOverlays()
