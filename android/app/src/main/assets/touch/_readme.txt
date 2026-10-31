@@ -1,0 +1,10 @@
+Default touch art ships here and is copied to Documents/UZDroid/Touch/.
+
+  JoyFrame.png       stick background, scaled to 2x the stick radius
+  JoyKnob.png        stick thumb, scaled to 0.8x the stick radius
+  <label>.png        the image for the button whose label is <label>
+
+Example: a line "fire1  hold:+attack  0.86 0.60 0.12 0.18 0.45" in
+Touch/touch-buttons.txt uses fire1.png.
+
+Only missing files are copied, so anything replaced on the device stays.

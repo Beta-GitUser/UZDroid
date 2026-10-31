@@ -195,6 +195,27 @@ public final class EnginePaths {
         return copied;
     }
 
+    /**
+     * Copies the shipped Touch defaults (config template, joystick and button
+     * images) into the data folder. Existing files always win, so a drawing the
+     * user replaced is never overwritten by a later build.
+     */
+    public static void ensureTouchData(Context context, File root) throws IOException {
+        AssetManager assets = context.getAssets();
+
+        String[] children = assets.list("touch");
+        if (children == null || children.length == 0) {
+            return;   // no defaults shipped
+        }
+
+        File target = new File(root, "Touch");
+        if (!target.isDirectory() && !target.mkdirs() && !target.isDirectory()) {
+            throw new IOException("Unable to create " + target);
+        }
+
+        copyAssetTree(assets, "touch", target, false);
+    }
+
     private static boolean copyAssetTree(AssetManager assets, String path, File target, boolean replace)
             throws IOException {
         String[] children = assets.list(path);

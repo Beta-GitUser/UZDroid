@@ -30,16 +30,37 @@ own touch-to-mouse translation is switched off so nothing arrives twice.
 | Where | What it does |
 |---|---|
 | Menus, console | **Trackpad.** Drag moves a pointer relative to where it is; a short tap clicks where the pointer points. |
-| Gameplay | **Look** anywhere on the right, **move** in the left strip (`touch_movezone`, default 35% wide). The stick presses the movement keys: up/down for forward and back, left/right for turn (rebind them in Controls for strafing). |
+| Gameplay | **Look** anywhere on the right, **move** in the left strip (`touch_movezone`, default 35% wide). The stick runs `+forward`, `+back`, `+moveleft` and `+moveright` directly, so it strafes and does not depend on any key bindings. |
 
 Look motion goes through `PostMouseMove()`, so *Options -> Mouse Options*
 sensitivity and the invert settings apply on top of `touch_sensitivity`.
 There is no tap-to-fire and no gesture for anything else: **all other actions
 are buttons**.
 
+### The Touch folder
+
+Everything touch-related lives in `Documents/UZDroid/Touch/`:
+
+```
+Touch/touch-buttons.txt   the button layout
+Touch/JoyFrame.png        stick background
+Touch/JoyKnob.png         stick thumb
+Touch/<label>.png         the image for a button
+```
+
+Defaults ship in the APK (`android/app/src/main/assets/touch/`) and are copied
+into the folder without overwriting anything that already exists, so a drawing
+that was replaced on the device stays replaced. Images are scaled to their
+button or to the stick radius, so one drawing works at every resolution; a
+button with no image falls back to drawing its label.
+
+The joystick is drawn only while the stick is under a finger: the frame sits
+where the finger landed and the knob follows the deflection, both pushed from
+the engine to the overlay.
+
 ### Buttons
 
-Buttons come from `touch-buttons.txt` in the data folder (`Documents/UZDroid`).
+Buttons come from `touch-buttons.txt` in that folder.
 **Nothing is preset** - the file is created with an explanation only, and an
 empty file means no buttons.
 
@@ -92,7 +113,11 @@ A console button that also raises the keyboard is therefore
 `cmd:toggleconsole;uzdroid_kbup`.
 
 The file is re-read every time the game comes to the foreground, so edits apply
-without reinstalling.
+without reinstalling. A button's image is `Touch/<label>.png` - a line starting
+`fire1` uses `fire1.png`.
+
+The game runs in landscape (the activity asks for `sensorLandscape`), so the
+fractions describe a landscape screen.
 
 The data folder is used through the engine's normal XDG variables, set right
 before the engine starts:

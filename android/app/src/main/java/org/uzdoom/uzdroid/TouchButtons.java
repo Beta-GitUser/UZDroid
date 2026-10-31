@@ -1,10 +1,19 @@
 /*
 ** TouchButtons.java
 **
-** On-screen buttons for touch play. Nothing is preset: the layout comes from
-** touch-buttons.txt in the data folder, and an empty file means no buttons at
-** all. Each button sends an ordinary key or mouse button into SDL, so it shows
-** up in the engine's Controls menu and can be bound to anything there.
+** The visual side of touch controls: on-screen buttons, and the joystick frame
+** and knob that follow the engine's movement stick.
+**
+** Nothing is preset. Everything comes from the Touch folder in the data
+** directory:
+**
+**   Touch/touch-buttons.txt   one line per button
+**   Touch/<label>.png         the image for a button
+**   Touch/JoyFrame.png        stick background
+**   Touch/JoyKnob.png         stick thumb
+**
+** Images are scaled to their button, so one drawing works at any resolution.
+** A button without an image falls back to its label as text.
 **
 ** SPDX-License-Identifier: GPL-3.0-or-later
 */
@@ -13,6 +22,8 @@ package org.uzdoom.uzdroid;
 
 import android.app.Activity;
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -37,7 +48,11 @@ import java.util.Locale;
 public final class TouchButtons {
 
     private static final String TAG = "UZDroid";
+    private static final String DIR = "Touch";
     private static final String CONFIG = "touch-buttons.txt";
+
+    /** Must match StickRadiusFraction in i_input.cpp. */
+    private static final float STICK_RADIUS = 0.10f;
 
     private static Layer layer;
 
@@ -62,16 +77,26 @@ public final class TouchButtons {
         reload(activity);
     }
 
-    /** Re-reads the config file; called on resume so edits apply immediately. */
+    /** Re-reads the config and the images; called on resume. */
     public static void reload(Activity activity) {
         if (layer == null) {
             return;
         }
 
-        File file = new File(EnginePaths.root(activity), CONFIG);
+        File dir = new File(EnginePaths.root(activity), DIR);
+        if (!dir.isDirectory() && !dir.mkdirs() && !dir.isDirectory()) {
+            Log.w(TAG, "cannot create " + dir);
+        }
 
+        File file = new File(dir, CONFIG);
         if (!file.isFile()) {
-            writeTemplate(file);
+            // Older builds kept it in the root; keep reading that if it is there.
+            File legacy = new File(EnginePaths.root(activity), CONFIG);
+            if (legacy.isFile()) {
+                file = legacy;
+            } else {
+                writeTemplate(file);
+            }
         }
 
         List<Spec> specs;
@@ -82,8 +107,30 @@ public final class TouchButtons {
             specs = new ArrayList<>();
         }
 
+        for (Spec spec : specs) {
+            spec.bitmap = load(dir, spec.label);
+        }
+
         layer.setButtons(specs);
+        layer.setStickImages(load(dir, "JoyFrame"), load(dir, "JoyKnob"));
+
         CrashLog.append(activity, "touch buttons: " + specs.size() + " from " + file.getAbsolutePath());
+    }
+
+    /** Called by the engine whenever the movement stick moves. Game thread. */
+    public static void onStick(float originX, float originY, float dx, float dy, boolean active) {
+        if (layer == null) {
+            return;
+        }
+        layer.setStick(originX, originY, dx, dy, active);   // posts its own invalidate
+    }
+
+    private static Bitmap load(File dir, String name) {
+        File file = new File(dir, name + ".png");
+        if (!file.isFile()) {
+            return null;
+        }
+        return BitmapFactory.decodeFile(file.getAbsolutePath());
     }
 
     // ---------------------------------------------------------------------
@@ -97,6 +144,7 @@ public final class TouchButtons {
         String command;          // a console command
         boolean hold;            // press runs it, release runs its opposite
         float x, y, w, h, alpha;
+        Bitmap bitmap;
     }
 
     private static List<Spec> parse(File file) throws IOException {
@@ -105,6 +153,7 @@ public final class TouchButtons {
         try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
             String line;
             while ((line = reader.readLine()) != null) {
+                // A ';' can separate a command chain, so only '#' starts a comment.
                 line = line.trim();
                 if (line.isEmpty() || line.startsWith("#")) {
                     continue;
@@ -239,7 +288,9 @@ public final class TouchButtons {
             "#\n" +
             "#   label   input   x   y   [width] [height] [alpha]\n" +
             "#\n" +
-            "# label  - text drawn on the button\n" +
+            "# label  - drawn on the button, and the name of its image:\n" +
+            "#          Touch/<label>.png, scaled to the button. Without an\n" +
+            "#          image the label is drawn as text.\n" +
             "# input  - a key name, mouse1 / mouse2 / mouse3, cmd:<console\n" +
             "#          command>, or hold:<+command> to also run the opposite\n" +
             "#          command when the button is released\n" +
@@ -254,20 +305,14 @@ public final class TouchButtons {
             "#\n" +
             "# Nothing is defined yet, so there are no buttons on screen. Example:\n" +
             "#\n" +
-            "#   fire    mouse1   0.86  0.60  0.12  0.18  0.45\n" +
-            "#   use     e        0.74  0.60  0.10  0.14  0.45\n" +
-            "#   jump    space    0.74  0.78  0.10  0.14  0.45\n" +
-            "#   menu    esc      0.94  0.04  0.08  0.10  0.45\n" +
+            "#   fire    hold:+attack           0.86  0.60  0.12  0.18  0.45\n" +
+            "#   use     cmd:+use               0.74  0.60  0.10  0.14  0.45\n" +
+            "#   console cmd:toggleconsole      0.94  0.16  0.08  0.10  0.45\n" +
+            "#   keys    cmd:uzdroid_kbup       0.94  0.28  0.08  0.10  0.45\n" +
             "#\n" +
-            "# Commands are run by the console, the same way a bound key runs them,\n" +
-            "# so mod actions and aliases work without needing a spare key:\n" +
-            "#\n" +
-            "#   attack  hold:+attack          0.86  0.60  0.12  0.18  0.45\n" +
-            "#   console cmd:toggleconsole     0.94  0.16  0.08  0.10  0.45\n" +
-            "#   keys    cmd:uzdroid_kbup      0.94  0.28  0.08  0.10  0.45\n" +
-            "#\n" +
-            "# The keys arrive at the engine as a keyboard or mouse, so bind them in\n" +
-            "# Options -> Customize Controls like any real input device.\n";
+            "# Commands run through the console, the way a bound key runs them, so\n" +
+            "# mod actions and aliases work without needing a spare key. A command\n" +
+            "# cannot contain spaces; wrap it in an alias first.\n";
 
         try (FileWriter writer = new FileWriter(file, false)) {
             writer.write(text);
@@ -284,9 +329,21 @@ public final class TouchButtons {
     private static final class Layer extends ViewGroup {
         private final List<Btn> buttons = new ArrayList<>();
 
+        private Bitmap frame;
+        private Bitmap knob;
+
+        private final Paint imagePaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+        private final RectF scratch = new RectF();
+
+        // Written by the game thread, read here.
+        private volatile float stickX, stickY, stickDx, stickDy;
+        private volatile boolean stickActive;
+
         Layer(Context context) {
             super(context);
             setClipChildren(false);
+            setWillNotDraw(false);   // the joystick is drawn by the layer itself
+            imagePaint.setAlpha(200);
         }
 
         void setButtons(List<Spec> specs) {
@@ -301,6 +358,46 @@ public final class TouchButtons {
 
             requestLayout();
             invalidate();
+        }
+
+        void setStickImages(Bitmap frame, Bitmap knob) {
+            this.frame = frame;
+            this.knob = knob;
+            invalidate();
+        }
+
+        void setStick(float originX, float originY, float dx, float dy, boolean active) {
+            stickX = originX;
+            stickY = originY;
+            stickDx = dx;
+            stickDy = dy;
+            stickActive = active;
+            postInvalidate();
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+
+            if (!stickActive || frame == null) {
+                return;
+            }
+
+            float radius = Math.min(getWidth(), getHeight()) * STICK_RADIUS;
+            if (radius <= 0) {
+                return;
+            }
+
+            scratch.set(stickX - radius, stickY - radius, stickX + radius, stickY + radius);
+            canvas.drawBitmap(frame, null, scratch, imagePaint);
+
+            if (knob != null) {
+                float kx = stickX + stickDx * radius;
+                float ky = stickY + stickDy * radius;
+                float kr = radius * 0.8f;
+                scratch.set(kx - kr, ky - kr, kx + kr, ky + kr);
+                canvas.drawBitmap(knob, null, scratch, imagePaint);
+            }
         }
 
         @Override
@@ -338,6 +435,7 @@ public final class TouchButtons {
         private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint image = new Paint(Paint.FILTER_BITMAP_FLAG);
         private final RectF shape = new RectF();
 
         private boolean pressed;
@@ -362,6 +460,14 @@ public final class TouchButtons {
 
         @Override
         protected void onDraw(Canvas canvas) {
+            if (spec.bitmap != null) {
+                // The drawing defines the look; alpha still comes from the file
+                // so buttons can be made see-through as a group.
+                image.setAlpha((int) (Math.min(1f, spec.alpha * 2f) * 255));
+                canvas.drawBitmap(spec.bitmap, null, shape, image);
+                return;
+            }
+
             float pad = stroke.getStrokeWidth();
             shape.set(pad, pad, getWidth() - pad, getHeight() - pad);
 

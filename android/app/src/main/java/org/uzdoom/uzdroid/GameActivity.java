@@ -45,6 +45,14 @@ public class GameActivity extends SDLActivity {
     }
 
     /**
+     * Called from the engine's input code as the movement stick moves, so the
+     * overlay can put the knob under the finger. Runs on the game thread.
+     */
+    public void onTouchStick(float originX, float originY, float dx, float dy, boolean active) {
+        TouchButtons.onStick(originX, originY, dx, dy, active);
+    }
+
+    /**
      * SDL loads libraries in this order. The last one is the one that contains
      * the entry point, so "main" has to stay last - that is what makes SDL look
      * for libmain.so and SDL_main().
@@ -62,6 +70,11 @@ public class GameActivity extends SDLActivity {
     protected String[] getArguments() {
         File root = EnginePaths.root(this);
         EnginePaths.ensureLayout(root);
+        try {
+            EnginePaths.ensureTouchData(this, root);
+        } catch (java.io.IOException e) {
+            Log.w(TAG, "could not copy the Touch folder", e);
+        }
         rotateLog(new File(root, "logs/uzdoom.log"));
         EnginePaths.applyEnvironment(root);
 

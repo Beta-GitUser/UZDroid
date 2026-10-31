@@ -23,6 +23,7 @@
 */
 
 #include "sdl_include.h"
+#include "SDL_system.h"
 
 #ifdef __ANDROID__
 #include <jni.h>
@@ -439,27 +440,7 @@ namespace
 		D_PostEvent(&event);
 	}
 
-	void TouchPostGuiWheel (bool up)
-	{
-		if (screen == nullptr)
-			return;
 
-		event_t event = { 0,0,0,0,0,0,0 };
-
-		event.type = EV_GUI_Event;
-		event.data3 = TouchKeyMods();
-		event.subtype = up ? EV_GUI_WheelUp : EV_GUI_WheelDown;
-		D_PostEvent(&event);
-	}
-
-	void TouchPostKey (int key, bool down)
-	{
-		event_t event = { 0,0,0,0,0,0,0 };
-
-		event.type = down ? EV_KeyDown : EV_KeyUp;
-		event.data1 = key;
-		D_PostEvent(&event);
-	}
 
 	//--- the menu pointer -----------------------------------------------------
 
@@ -491,46 +472,98 @@ namespace
 
 	//--- the movement stick ---------------------------------------------------
 
+	float TouchStickRadius ()
+	{
+		return std::max(1.f, std::min(TouchWindowW, TouchWindowH) * StickRadiusFraction);
+	}
+
+	// The stick drives the engine's own movement actions instead of pressing
+	// keys. Keys would make it depend on whatever happens to be bound, and the
+	// defaults turn rather than strafe; +forward/+moveright are the actions
+	// themselves, so they work with any bindings and with mods that alias them.
 	void TouchStickPush (int x, int y)
 	{
 		if (x != StickKeysX)
 		{
-			if (StickKeysX < 0)		TouchPostKey(KEY_LEFTARROW, false);
-			if (StickKeysX > 0)		TouchPostKey(KEY_RIGHTARROW, false);
-			if (x < 0)				TouchPostKey(KEY_LEFTARROW, true);
-			if (x > 0)				TouchPostKey(KEY_RIGHTARROW, true);
+			if (StickKeysX < 0)		AddCommandString("-moveleft");
+			if (StickKeysX > 0)		AddCommandString("-moveright");
+			if (x < 0)				AddCommandString("+moveleft");
+			if (x > 0)				AddCommandString("+moveright");
 			StickKeysX = x;
 		}
 
 		if (y != StickKeysY)
 		{
-			if (StickKeysY < 0)		TouchPostKey(KEY_DOWNARROW, false);
-			if (StickKeysY > 0)		TouchPostKey(KEY_UPARROW, false);
-			if (y < 0)				TouchPostKey(KEY_DOWNARROW, true);
-			if (y > 0)				TouchPostKey(KEY_UPARROW, true);
+			if (StickKeysY < 0)		AddCommandString("-back");
+			if (StickKeysY > 0)		AddCommandString("-forward");
+			if (y < 0)				AddCommandString("+back");
+			if (y > 0)				AddCommandString("+forward");
 			StickKeysY = y;
 		}
+	}
+
+	// Hands the knob position to the Java overlay, which draws JoyFrame and
+	// JoyKnob. Silent when there is nothing to draw on.
+	void TouchStickVisuals ()
+	{
+#ifdef __ANDROID__
+		static jmethodID method = nullptr;
+
+		JNIEnv *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+		jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+
+		if (env == nullptr || activity == nullptr)
+			return;
+
+		jclass cls = env->GetObjectClass(activity);
+
+		if (method == nullptr)
+		{
+			method = env->GetMethodID(cls, "onTouchStick", "(FFFFZ)V");
+		}
+
+		if (method != nullptr)
+		{
+			const float radius = TouchStickRadius();
+			const float dx = MoveFinger.Down ? TouchClamp((MoveFinger.LastX - MoveFinger.StartX) / radius, -1.f, 1.f) : 0.f;
+			const float dy = MoveFinger.Down ? TouchClamp((MoveFinger.LastY - MoveFinger.StartY) / radius, -1.f, 1.f) : 0.f;
+
+			env->CallVoidMethod(activity, method, MoveFinger.StartX, MoveFinger.StartY, dx, dy,
+				MoveFinger.Down ? JNI_TRUE : JNI_FALSE);
+		}
+
+		if (env->ExceptionCheck())
+		{
+			env->ExceptionClear();
+		}
+
+		env->DeleteLocalRef(cls);
+		env->DeleteLocalRef(activity);
+#endif
 	}
 
 	void TouchStickRelease ()
 	{
 		TouchStickPush(0, 0);
+		TouchStickVisuals();
 	}
 
 	void TouchStickUpdate ()
 	{
-		const float radius = std::min(TouchWindowW, TouchWindowH) * StickRadiusFraction;
+		const float radius = TouchStickRadius();
 		const float dead = radius * TouchClamp(float(touch_deadzone), 0.f, 0.9f);
 
 		const float dx = MoveFinger.LastX - MoveFinger.StartX;
 		const float dy = MoveFinger.LastY - MoveFinger.StartY;
 
+		// Diagonals are part of the deal: the dead zone applies per axis.
 		int x = 0, y = 0;
 
 		if (fabsf(dx) > dead)	x = (dx < 0) ? -1 : 1;
 		if (fabsf(dy) > dead)	y = (dy < 0) ? -1 : 1;	// up is forward
 
 		TouchStickPush(x, y);
+		TouchStickVisuals();
 	}
 
 	//--- finger bookkeeping ---------------------------------------------------
