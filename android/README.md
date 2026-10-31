@@ -42,11 +42,17 @@ are buttons**.
 Everything touch-related lives in `Documents/UZDroid/Touch/`:
 
 ```
-Touch/touch-buttons.txt   the button layout
-Touch/JoyFrame.png        stick background
-Touch/JoyKnob.png         stick thumb
-Touch/<label>.png         the image for a button
+Touch/touch-buttons.txt        gameplay buttons
+Touch/touch-buttons-menu.txt   buttons while a menu or the console is open
+Touch/JoyFrame.png             stick background
+Touch/JoyKnob.png              stick thumb
+Touch/<label>.png              the image for a button
 ```
+
+The two layouts are separate files because they are separate jobs: gameplay
+wants fire, use and jump under the thumbs, while a menu wants Up/Down/Enter/Esc.
+The engine switches between them with the context, and the editor edits whichever
+one is on screen.
 
 Defaults ship in the APK (`android/app/src/main/assets/touch/`) and are copied
 into the folder without overwriting anything that already exists, so a drawing
@@ -124,9 +130,10 @@ without reinstalling.
 
 *Options -> Touch controls -> Move the buttons* (or the console command
 `uzdroid_touch_edit`) switches to a layout mode: every button gets an outline,
-dragging one moves it, and leaving the mode writes the new positions back into
-`touch-buttons.txt` - only the button lines change, so comments and hand edits
-survive. A button's image is `Touch/<label>.png` - a line starting
+dragging the body moves it, dragging the bottom right corner resizes it, and
+leaving the mode writes the layout back - only the button lines change, so
+comments and hand edits survive. It edits the layout that is currently on
+screen, so open a menu first to arrange the menu buttons. A button's image is `Touch/<label>.png` - a line starting
 `fire1` uses `fire1.png`.
 
 The game runs in landscape (the activity asks for `sensorLandscape`), so the

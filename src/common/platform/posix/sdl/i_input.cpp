@@ -474,6 +474,7 @@ namespace
 		int mouse = 0;						// 1..3, or
 		FString command;					// a console command
 		bool hold = false;					// run the opposite on release
+		bool ui = false;					// belongs to the menu layout, not gameplay
 		SDL_FingerID finger = 0;
 		bool down = false;
 	};
@@ -486,6 +487,9 @@ namespace
 	int TouchEditIndex = -1;
 	float TouchEditGrabX = 0, TouchEditGrabY = 0;
 	SDL_FingerID TouchEditFinger = 0;
+	bool TouchEditResizing = false;
+	// A finger this close to the bottom right corner resizes instead of moves.
+	constexpr float EditHandleFraction = 0.35f;
 
 	int TouchKeyFromName (const char *name)
 	{
@@ -499,6 +503,20 @@ namespace
 				return i;
 		}
 		return -1;
+	}
+
+	// Java keeps one list per layout, so it needs the index within that layout.
+	int TouchButtonLocalIndex (int index)
+	{
+		const bool ui = TouchButtons[index].ui;
+		int local = 0;
+
+		for (int i = 0; i < index; i++)
+		{
+			if (TouchButtons[i].ui == ui)
+				local++;
+		}
+		return local;
 	}
 
 	void TouchPushButtonState (int index, bool down)
@@ -516,12 +534,13 @@ namespace
 
 		if (method == nullptr)
 		{
-			method = env->GetMethodID(cls, "onTouchButtonPressed", "(IZ)V");
+			method = env->GetMethodID(cls, "onTouchButtonPressed", "(ZIZ)V");
 		}
 
 		if (method != nullptr)
 		{
-			env->CallVoidMethod(activity, method, index, down ? JNI_TRUE : JNI_FALSE);
+			env->CallVoidMethod(activity, method, TouchButtons[index].ui ? JNI_TRUE : JNI_FALSE,
+				TouchButtonLocalIndex(index), down ? JNI_TRUE : JNI_FALSE);
 		}
 
 		if (env->ExceptionCheck())
@@ -574,11 +593,13 @@ namespace
 			return;
 
 		jclass cls = env->GetObjectClass(activity);
-		jmethodID method = env->GetMethodID(cls, "onTouchButtonMoved", "(IFF)V");
+		jmethodID method = env->GetMethodID(cls, "onTouchButtonMoved", "(IZFFFF)V");
 
 		if (method != nullptr)
 		{
-			env->CallVoidMethod(activity, method, index, x, y);
+			env->CallVoidMethod(activity, method, TouchButtonLocalIndex(index),
+				TouchButtons[index].ui ? JNI_TRUE : JNI_FALSE, x, y,
+				TouchButtons[index].w, TouchButtons[index].h);
 		}
 		if (env->ExceptionCheck())
 		{
@@ -640,11 +661,14 @@ namespace
 		TouchPushButtonState((int)index, down);
 	}
 
-	int TouchButtonAt (float fx, float fy)
+	int TouchButtonAt (bool ui, float fx, float fy)
 	{
 		for (unsigned i = 0; i < TouchButtons.Size(); i++)
 		{
 			const FTouchButton &button = TouchButtons[i];
+
+			if (button.ui != ui)
+				continue;
 
 			if (fx >= button.x && fx <= button.x + button.w &&
 				fy >= button.y && fy <= button.y + button.h)
@@ -892,30 +916,36 @@ namespace
 		const float x = tf.x * TouchWindowW;
 		const float y = tf.y * TouchWindowH;
 
-		// Editing takes the fingers first: a drag moves the button under it
-		// instead of firing it, and nothing looks around meanwhile.
+		// Editing takes the fingers first: a drag moves the button under it (or
+		// resizes it from the bottom right corner), nothing fires meanwhile.
 		if (TouchEditing)
 		{
 			if (TouchEditIndex < 0)
 			{
-				const int index = TouchButtonAt(tf.x, tf.y);
+				const int index = TouchButtonAt(TouchUiContext(), tf.x, tf.y);
 
 				if (index >= 0)
 				{
+					const FTouchButton &button = TouchButtons[index];
+					const bool inCorner =
+						tf.x > button.x + button.w * (1.f - EditHandleFraction) &&
+						tf.y > button.y + button.h * (1.f - EditHandleFraction);
+
 					TouchEditIndex = index;
 					TouchEditFinger = tf.fingerId;
-					TouchEditGrabX = tf.x - TouchButtons[index].x;
-					TouchEditGrabY = tf.y - TouchButtons[index].y;
+					TouchEditResizing = inCorner;
+					TouchEditGrabX = tf.x - button.x;
+					TouchEditGrabY = tf.y - button.y;
 				}
 			}
 			return;
 		}
 
 		// A thumb on a button does not stop the other thumb from looking: the
-		// button is a rectangle here, not a view that owns the gesture.
-		if (!TouchUiContext())
+		// button is a rectangle here, not a view that owns the gesture. Menu
+		// buttons come from their own layout and sit above the pointer.
 		{
-			const int index = TouchButtonAt(tf.x, tf.y);
+			const int index = TouchButtonAt(TouchUiContext(), tf.x, tf.y);
 
 			if (index >= 0 && !TouchButtons[index].down)
 			{
@@ -980,8 +1010,16 @@ namespace
 			{
 				FTouchButton &button = TouchButtons[TouchEditIndex];
 
-				button.x = TouchClamp(tf.x - TouchEditGrabX, 0.f, 1.f - button.w);
-				button.y = TouchClamp(tf.y - TouchEditGrabY, 0.f, 1.f - button.h);
+				if (TouchEditResizing)
+				{
+					button.w = TouchClamp(tf.x - button.x, 0.03f, 1.f - button.x);
+					button.h = TouchClamp(tf.y - button.y, 0.03f, 1.f - button.y);
+				}
+				else
+				{
+					button.x = TouchClamp(tf.x - TouchEditGrabX, 0.f, 1.f - button.w);
+					button.y = TouchClamp(tf.y - TouchEditGrabY, 0.f, 1.f - button.h);
+				}
 
 				TouchPushButtonMoved(TouchEditIndex, button.x, button.y);
 			}
@@ -1192,28 +1230,30 @@ CCMD (uzdroid_touch_edit)
 CCMD (uzdroid_button_reset)
 {
 	TouchButtons.Clear();
+	TouchEditIndex = -1;
 }
 
-// Sent by the Android overlay once per line of touch-buttons.txt:
-//   uzdroid_button <x> <y> <w> <h> <input> <label>
+// Sent by the Android overlay once per line of a layout file:
+//   uzdroid_button <game|menu> <x> <y> <w> <h> <input> <label>
 // The overlay only draws them; the engine decides what a press means, which is
 // also why a held button cannot swallow the other thumb's look gesture.
 CCMD (uzdroid_button)
 {
-	if (argv.argc() < 7)
+	if (argv.argc() < 8)
 	{
-		Printf("uzdroid_button <x> <y> <w> <h> <input> <label>\n");
+		Printf("uzdroid_button <game|menu> <x> <y> <w> <h> <input> <label>\n");
 		return;
 	}
 
 	FTouchButton button;
 
-	button.x = (float)atof(argv[1]);
-	button.y = (float)atof(argv[2]);
-	button.w = (float)atof(argv[3]);
-	button.h = (float)atof(argv[4]);
+	button.ui = !stricmp(argv[1], "menu");
+	button.x = (float)atof(argv[2]);
+	button.y = (float)atof(argv[3]);
+	button.w = (float)atof(argv[4]);
+	button.h = (float)atof(argv[5]);
 
-	FString input = argv[5];
+	FString input = argv[6];
 
 	// '|' stands for ';' - a command chain cannot travel through the console
 	// parser as one argument otherwise.

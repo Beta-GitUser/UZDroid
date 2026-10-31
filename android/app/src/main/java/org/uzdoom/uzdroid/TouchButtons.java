@@ -1,19 +1,20 @@
 /*
 ** TouchButtons.java
 **
-** The visual side of touch controls: on-screen buttons, and the joystick frame
-** and knob that follow the engine's movement stick.
+** The visual half of touch controls: two button layouts - one for gameplay, one
+** for menus - plus the joystick frame and knob that follow the engine's stick.
 **
 ** Nothing is preset. Everything comes from the Touch folder in the data
 ** directory:
 **
-**   Touch/touch-buttons.txt   one line per button
-**   Touch/<label>.png         the image for a button
-**   Touch/JoyFrame.png        stick background
-**   Touch/JoyKnob.png         stick thumb
+**   Touch/touch-buttons.txt        gameplay buttons
+**   Touch/touch-buttons-menu.txt   menu buttons
+**   Touch/<label>.png              the image for a button
+**   Touch/JoyFrame.png             stick background
+**   Touch/JoyKnob.png              stick thumb
 **
-** Images are scaled to their button, so one drawing works at any resolution.
-** A button without an image falls back to its label as text.
+** The engine owns the presses; this class draws them and writes the layout back
+** after it has been dragged around in the editor.
 **
 ** SPDX-License-Identifier: GPL-3.0-or-later
 */
@@ -47,19 +48,42 @@ public final class TouchButtons {
 
     private static final String TAG = "UZDroid";
     private static final String DIR = "Touch";
-    private static final String CONFIG = "touch-buttons.txt";
 
     /** Must match StickRadiusFraction in i_input.cpp. */
     private static final float STICK_RADIUS = 0.10f;
 
     private static Layer layer;
-    private static List<Spec> lastSpecs = new ArrayList<>();
-    private static List<String> fileLines = new ArrayList<>();
-    private static File configFile;
+
+    private static final Layout GAME = new Layout("touch-buttons.txt", false);
+    private static final Layout MENU = new Layout("touch-buttons-menu.txt", true);
+
+    private static boolean uiContext;
     private static boolean editing;
 
     private TouchButtons() {
     }
+
+    private static final class Layout {
+        final String fileName;
+        final boolean ui;
+
+        File file;
+        List<Spec> specs = new ArrayList<>();
+        List<String> lines = new ArrayList<>();
+
+        Layout(String fileName, boolean ui) {
+            this.fileName = fileName;
+            this.ui = ui;
+        }
+    }
+
+    private static Layout active() {
+        return uiContext ? MENU : GAME;
+    }
+
+    // ---------------------------------------------------------------------
+    // Life cycle
+    // ---------------------------------------------------------------------
 
     /** Adds the overlay to SDL's own layout, above the game surface. */
     public static void install(Activity activity) {
@@ -92,7 +116,7 @@ public final class TouchButtons {
         reload(activity);
     }
 
-    /** Re-reads the config and the images; called on resume. */
+    /** Re-reads both layouts and the images; called on resume. */
     public static void reload(Activity activity) {
         if (layer == null) {
             install(activity);       // retry: the layout may not have existed yet
@@ -106,68 +130,135 @@ public final class TouchButtons {
             Log.w(TAG, "cannot create " + dir);
         }
 
-        File file = new File(dir, CONFIG);
-        if (!file.isFile()) {
-            // Older builds kept it in the root; keep reading that if it is there.
-            File legacy = new File(EnginePaths.root(activity), CONFIG);
-            if (legacy.isFile()) {
-                file = legacy;
-            } else {
-                writeTemplate(file);
-            }
+        read(dir, GAME);
+        read(dir, MENU);
+
+        for (Spec spec : GAME.specs) {
+            spec.bitmap = load(dir, spec.label);
         }
-
-        configFile = file;
-
-        List<Spec> specs;
-        try {
-            fileLines = readLines(file);
-            specs = parse(fileLines);
-        } catch (IOException e) {
-            Log.w(TAG, "cannot read " + file, e);
-            fileLines = new ArrayList<>();
-            specs = new ArrayList<>();
-        }
-
-        for (Spec spec : specs) {
+        for (Spec spec : MENU.specs) {
             spec.bitmap = load(dir, spec.label);
         }
 
-        lastSpecs = specs;
-        layer.setButtons(specs);
         layer.setStickImages(load(dir, "JoyFrame"), load(dir, "JoyKnob"));
-        publish(specs);
+        showActive();
 
-        CrashLog.append(activity, "touch buttons: " + specs.size() + " from " + file.getAbsolutePath());
+        publish();
 
-        if (specs.isEmpty()) {
-            Log.w(TAG, "touch-buttons.txt produced no buttons; see the line formats in it");
-            CrashLog.append(activity, "touch buttons: none usable - check label/input/x/y per line");
+        CrashLog.append(activity, "touch buttons: " + GAME.specs.size() + " game, "
+                + MENU.specs.size() + " menu, from " + dir.getAbsolutePath());
+    }
+
+    private static void read(File dir, Layout layout) {
+        File file = new File(dir, layout.fileName);
+
+        if (!file.isFile()) {
+            File legacy = new File(dir.getParentFile(), layout.fileName);
+            if (legacy.isFile() && !layout.ui) {
+                file = legacy;       // older builds kept the game layout in the root
+            } else {
+                writeTemplate(file, layout);
+            }
+        }
+
+        layout.file = file;
+
+        try {
+            layout.lines = readLines(file);
+            layout.specs = parse(layout.lines);
+        } catch (IOException e) {
+            Log.w(TAG, "cannot read " + file, e);
+            layout.lines = new ArrayList<>();
+            layout.specs = new ArrayList<>();
+        }
+
+        if (layout.specs.isEmpty()) {
+            Log.w(TAG, layout.fileName + " produced no buttons");
         }
     }
 
+    /** The engine asks for the table once its input is up. */
+    public static void republish() {
+        publish();
+    }
+
     /**
-     * Menus and gameplay do not share controls: the overlay is hidden while a
-     * menu or the console owns the pointer. Called from the game thread.
+     * Hands both layouts to the engine, which owns what a press means. Inputs
+     * are validated there, so the names the game's bind command accepts work.
      */
+    private static void publish() {
+        EngineBridge.run("uzdroid_button_reset");
+
+        publish(GAME);
+        publish(MENU);
+    }
+
+    private static void publish(Layout layout) {
+        for (Spec spec : layout.specs) {
+            // ';' would split the command in the console parser, so it travels
+            // as '|' and the engine turns it back.
+            String input = spec.input.replace(';', '|');
+            EngineBridge.run(String.format(Locale.ROOT,
+                    "uzdroid_button %s %.4f %.4f %.4f %.4f %s %s",
+                    layout.ui ? "menu" : "game", spec.x, spec.y, spec.w, spec.h,
+                    input, spec.label));
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Calls from the engine
+    // ---------------------------------------------------------------------
+
+    /** Menus get their own layout instead of hiding the gameplay one. */
     public static void setUiContext(boolean ui) {
+        uiContext = ui;
+
         if (layer == null) {
             return;
         }
         layer.post(() -> {
-            layer.setVisibility(ui ? View.INVISIBLE : View.VISIBLE);
+            showActive();
             if (ui) {
                 layer.setStick(0, 0, 0, 0, false);
             }
         });
     }
 
-    /**
-     * The engine asks for the table once its input is up; the first publish may
-     * have been dropped because the native side was still loading.
-     */
-    public static void republish() {
-        publish(lastSpecs);
+    /** Which button the engine sees held, so the overlay can draw it pressed. */
+    public static void onButtonPressed(boolean ui, int index, boolean pressed) {
+        Layout layout = ui ? MENU : GAME;
+
+        if (index < 0 || index >= layout.specs.size()) {
+            return;
+        }
+
+        layout.specs.get(index).pressed = pressed;
+
+        if (layout == active() && layer != null) {
+            layer.post(layer::invalidate);
+        }
+    }
+
+    /** A button was dragged or resized in the editor; remember it. */
+    public static void moveButton(int index, boolean ui, float x, float y, float w, float h) {
+        Layout layout = ui ? MENU : GAME;
+
+        if (index < 0 || index >= layout.specs.size()) {
+            return;
+        }
+
+        Spec spec = layout.specs.get(index);
+        spec.x = x;
+        spec.y = y;
+        spec.w = w;
+        spec.h = h;
+
+        if (layout == active() && layer != null) {
+            layer.post(() -> {
+                layer.requestLayout();
+                layer.invalidate();
+            });
+        }
     }
 
     /** Drag-to-move mode: the engine handles the fingers, we show the result. */
@@ -180,72 +271,9 @@ public final class TouchButtons {
         layer.post(() -> {
             layer.setEditing(on);
             if (!on) {
-                save();
+                save(active());
             }
         });
-    }
-
-    /** A button followed the finger. Called from the game thread. */
-    public static void moveButton(int index, float x, float y) {
-        if (layer == null || index < 0 || index >= lastSpecs.size()) {
-            return;
-        }
-
-        Spec spec = lastSpecs.get(index);
-        spec.x = x;
-        spec.y = y;
-
-        layer.post(() -> {
-            layer.requestLayout();
-            layer.invalidate();
-        });
-    }
-
-    /**
-     * Writes the layout back, touching only the lines that are buttons so the
-     * comments in the file survive.
-     */
-    private static void save() {
-        if (configFile == null || fileLines.isEmpty()) {
-            return;
-        }
-
-        StringBuilder out = new StringBuilder();
-
-        for (int index = 0; index < fileLines.size(); index++) {
-            Spec spec = specAtLine(index);
-
-            if (spec != null) {
-                out.append(String.format(Locale.ROOT, "%s  %s  %.3f  %.3f  %.3f  %.3f  %.2f%n",
-                        spec.label, spec.input, spec.x, spec.y, spec.w, spec.h, spec.alpha));
-            } else {
-                out.append(fileLines.get(index)).append('\n');
-            }
-        }
-
-        try (FileWriter writer = new FileWriter(configFile, false)) {
-            writer.write(out.toString());
-            Log.i(TAG, "saved touch layout to " + configFile);
-        } catch (IOException e) {
-            Log.w(TAG, "cannot save " + configFile, e);
-        }
-    }
-
-    private static Spec specAtLine(int line) {
-        for (Spec spec : lastSpecs) {
-            if (spec.line == line) {
-                return spec;
-            }
-        }
-        return null;
-    }
-
-    /** Engine tells us which button is held, so it can look pressed. */
-    public static void onButtonPressed(int index, boolean pressed) {
-        if (layer == null) {
-            return;
-        }
-        layer.post(() -> layer.setPressed(index, pressed));
     }
 
     /** Called by the engine whenever the movement stick moves. Game thread. */
@@ -256,12 +284,47 @@ public final class TouchButtons {
         layer.setStick(originX, originY, dx, dy, active);   // posts its own invalidate
     }
 
-    private static Bitmap load(File dir, String name) {
-        File file = new File(dir, name + ".png");
-        if (!file.isFile()) {
-            return null;
+    // ---------------------------------------------------------------------
+    // Saving
+    // ---------------------------------------------------------------------
+
+    /**
+     * Writes one layout back, touching only the lines that are buttons so the
+     * comments in the file survive.
+     */
+    private static void save(Layout layout) {
+        if (layout.file == null || layout.lines.isEmpty()) {
+            return;
         }
-        return BitmapFactory.decodeFile(file.getAbsolutePath());
+
+        StringBuilder out = new StringBuilder();
+
+        for (int index = 0; index < layout.lines.size(); index++) {
+            Spec spec = specAtLine(layout, index);
+
+            if (spec != null) {
+                out.append(String.format(Locale.ROOT, "%s  %s  %.3f  %.3f  %.3f  %.3f  %.2f%n",
+                        spec.label, spec.input, spec.x, spec.y, spec.w, spec.h, spec.alpha));
+            } else {
+                out.append(layout.lines.get(index)).append('\n');
+            }
+        }
+
+        try (FileWriter writer = new FileWriter(layout.file, false)) {
+            writer.write(out.toString());
+            Log.i(TAG, "saved " + layout.file);
+        } catch (IOException e) {
+            Log.w(TAG, "cannot save " + layout.file, e);
+        }
+    }
+
+    private static Spec specAtLine(Layout layout, int line) {
+        for (Spec spec : layout.specs) {
+            if (spec.line == line) {
+                return spec;
+            }
+        }
+        return null;
     }
 
     // ---------------------------------------------------------------------
@@ -293,14 +356,12 @@ public final class TouchButtons {
         List<Spec> specs = new ArrayList<>();
 
         for (int index = 0; index < lines.size(); index++) {
-            String raw = lines.get(index);
-            String line = raw.trim();
+            String line = lines.get(index).trim();
 
             if (line.isEmpty() || line.startsWith("#")) {
                 continue;
             }
             {
-
                 String[] parts = line.split("\\s+");
                 if (parts.length < 4) {
                     Log.w(TAG, "touch button needs label, input, x and y: " + line);
@@ -330,23 +391,6 @@ public final class TouchButtons {
         return specs;
     }
 
-    /**
-     * Hands the table to the engine, which owns what a press means. Inputs are
-     * validated there, so the same names the game's bind command accepts work.
-     */
-    private static void publish(List<Spec> specs) {
-        EngineBridge.run("uzdroid_button_reset");
-
-        for (Spec spec : specs) {
-            // ';' would split the command in the console parser, so it travels
-            // as '|' and the engine turns it back.
-            String input = spec.input.replace(';', '|');
-            EngineBridge.run(String.format(Locale.ROOT,
-                    "uzdroid_button %.4f %.4f %.4f %.4f %s %s",
-                    spec.x, spec.y, spec.w, spec.h, input, spec.label));
-        }
-    }
-
     private static float number(String text, float fallback) {
         try {
             return Float.parseFloat(text);
@@ -355,37 +399,8 @@ public final class TouchButtons {
         }
     }
 
-    private static void writeTemplate(File file) {
-        String text =
-            "# UZDroid touch buttons\n" +
-            "#\n" +
-            "# One button per line, whitespace separated:\n" +
-            "#\n" +
-            "#   label   input   x   y   [width] [height] [alpha]\n" +
-            "#\n" +
-            "# label  - drawn on the button, and the name of its image:\n" +
-            "#          Touch/<label>.png, scaled to the button. Without an\n" +
-            "#          image the label is drawn as text.\n" +
-            "# input  - a key name, mouse1 / mouse2 / mouse3, cmd:<console\n" +
-            "#          command>, or hold:<+command> to also run the opposite\n" +
-            "#          command when the button is released\n" +
-            "#          key names are the ones the game's own bind command takes,\n" +
-            "#          e.g. f, space, Escape, Tab, [, ], F3, Up, Down, Ctrl\n" +
-            "# x, y   - top left corner, as a fraction of the screen (0..1)\n" +
-            "# width  - default 0.12\n" +
-            "# height - default 0.14\n" +
-            "# alpha  - default 0.4\n" +
-            "#\n" +
-            "# Nothing is defined yet, so there are no buttons on screen. Example:\n" +
-            "#\n" +
-            "#   fire    hold:+attack           0.86  0.60  0.12  0.18  0.45\n" +
-            "#   use     cmd:+use               0.74  0.60  0.10  0.14  0.45\n" +
-            "#   console cmd:toggleconsole      0.94  0.16  0.08  0.10  0.45\n" +
-            "#   keys    cmd:uzdroid_kbup       0.94  0.28  0.08  0.10  0.45\n" +
-            "#\n" +
-            "# Commands run through the console, the way a bound key runs them, so\n" +
-            "# mod actions and aliases work without needing a spare key. A command\n" +
-            "# cannot contain spaces; wrap it in an alias first.\n";
+    private static void writeTemplate(File file, Layout layout) {
+        String text = layout.ui ? MENU_TEMPLATE : GAME_TEMPLATE;
 
         try (FileWriter writer = new FileWriter(file, false)) {
             writer.write(text);
@@ -394,9 +409,55 @@ public final class TouchButtons {
         }
     }
 
+    private static final String HEADER =
+        "# One button per line, whitespace separated:\n" +
+        "#\n" +
+        "#   label   input   x   y   [width] [height] [alpha]\n" +
+        "#\n" +
+        "# label  - drawn on the button, and the name of its image:\n" +
+        "#          Touch/<label>.png, scaled to fit. Without an image the\n" +
+        "#          label is drawn as text.\n" +
+        "# input  - a key name, mouse1 / mouse2 / mouse3, cmd:<console\n" +
+        "#          command>, or hold:<+command> to also run the opposite\n" +
+        "#          command when the button is released. Key names are the\n" +
+        "#          ones the game's own bind command takes: f, space, Escape,\n" +
+        "#          Tab, [, ], F3, Up, Down, Ctrl.\n" +
+        "# x, y   - top left corner, as a fraction of the screen (0..1)\n" +
+        "# width  - default 0.12, height 0.14, alpha 0.4\n" +
+        "#\n" +
+        "# Options -> Touch controls -> Move the buttons moves them without\n" +
+        "# editing this file by hand.\n" +
+        "#\n";
+
+    private static final String GAME_TEMPLATE =
+        "# UZDroid gameplay buttons (shown while in a level).\n" +
+        HEADER +
+        "# Nothing is defined yet. Example:\n" +
+        "#   fire    hold:+attack   0.86  0.60  0.12  0.18  0.45\n";
+
+    private static final String MENU_TEMPLATE =
+        "# UZDroid menu buttons (shown while a menu or the console is open).\n" +
+        HEADER +
+        "# Nothing is defined yet. Example:\n" +
+        "#   up      Up      0.06  0.55  0.09  0.12  0.45\n" +
+        "#   ok      Enter   0.84  0.80  0.12  0.14  0.45\n";
+
+    private static Bitmap load(File dir, String name) {
+        File file = new File(dir, name + ".png");
+        if (!file.isFile()) {
+            return null;
+        }
+        return BitmapFactory.decodeFile(file.getAbsolutePath());
+    }
+
     // ---------------------------------------------------------------------
-    // Views
+    // Drawing
     // ---------------------------------------------------------------------
+
+    private static void showActive() {
+        layer.setButtons(active().specs);
+        layer.setEditing(editing);
+    }
 
     /** Lays the buttons out by fraction of the surface, so rotation is free. */
     private static final class Layer extends ViewGroup {
@@ -407,8 +468,8 @@ public final class TouchButtons {
 
         private final Paint imagePaint = new Paint(Paint.FILTER_BITMAP_FLAG);
         private final Paint editPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private boolean editingOutline;
         private final RectF scratch = new RectF();
+        private boolean editingOutline;
 
         // Written by the game thread, read here.
         private volatile float stickX, stickY, stickDx, stickDy;
@@ -417,7 +478,7 @@ public final class TouchButtons {
         Layer(Context context) {
             super(context);
             setClipChildren(false);
-            setWillNotDraw(false);   // the joystick is drawn by the layer itself
+            setWillNotDraw(false);   // the joystick and the edit outlines
             imagePaint.setAlpha(200);
         }
 
@@ -438,12 +499,6 @@ public final class TouchButtons {
         void setEditing(boolean on) {
             editingOutline = on;
             invalidate();
-        }
-
-        void setPressed(int index, boolean pressed) {
-            if (index >= 0 && index < buttons.size()) {
-                buttons.get(index).setPressedState(pressed);
-            }
         }
 
         void setStickImages(Bitmap frame, Bitmap knob) {
@@ -554,13 +609,6 @@ public final class TouchButtons {
             text.setColor(Color.WHITE);
             text.setTextAlign(Paint.Align.CENTER);
             text.setFakeBoldText(true);
-        }
-
-        void setPressedState(boolean pressed) {
-            if (spec.pressed != pressed) {
-                spec.pressed = pressed;
-                invalidate();
-            }
         }
 
         @Override

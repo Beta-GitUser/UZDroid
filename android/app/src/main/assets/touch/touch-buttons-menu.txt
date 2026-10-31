@@ -1,0 +1,21 @@
+# UZDroid menu buttons.
+#
+# Shown instead of the gameplay layout while a menu or the console is open, so
+# the menus are usable without a keyboard. Same format as touch-buttons.txt:
+#
+#   label   input   x   y   [width] [height] [alpha]
+#
+# inputs are key names the game's bind command takes (Up, Down, Left, Right,
+# Enter, Escape, Tab, Backspace, PgDn) or cmd:<console command>.
+#
+# Options -> Touch controls -> Move the buttons edits this layout whenever a
+# menu is open.
+#
+# label        input       x      y      w      h      alpha
+menu-up        Up          0.07   0.52   0.09   0.12   0.45
+menu-left      Left        0.02   0.66   0.09   0.12   0.45
+menu-right     Right       0.12   0.66   0.09   0.12   0.45
+menu-down      Down        0.07   0.80   0.09   0.12   0.45
+menu-ok        Enter       0.86   0.78   0.11   0.14   0.45
+menu-back      Escape      0.86   0.60   0.11   0.14   0.45
+menu-page      PgDn        0.86   0.94   0.11   0.10   0.35

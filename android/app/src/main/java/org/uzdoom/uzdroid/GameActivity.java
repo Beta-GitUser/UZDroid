@@ -68,14 +68,14 @@ public class GameActivity extends SDLActivity {
         TouchButtons.setEditing(editing);
     }
 
-    /** A button was dragged to a new place while editing. */
-    public void onTouchButtonMoved(int index, float x, float y) {
-        TouchButtons.moveButton(index, x, y);
+    /** A button was dragged or resized while editing. */
+    public void onTouchButtonMoved(int index, boolean ui, float x, float y, float w, float h) {
+        TouchButtons.moveButton(index, ui, x, y, w, h);
     }
 
     /** Which button the engine sees held, so the overlay can draw it pressed. */
-    public void onTouchButtonPressed(int index, boolean pressed) {
-        TouchButtons.onButtonPressed(index, pressed);
+    public void onTouchButtonPressed(boolean ui, int index, boolean pressed) {
+        TouchButtons.onButtonPressed(ui, index, pressed);
     }
 
     /**
