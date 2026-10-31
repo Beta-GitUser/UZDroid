@@ -505,6 +505,58 @@ namespace
 		return -1;
 	}
 
+	// "mouse1", "cmd:...", "hold:+..." or a key name.
+	bool TouchParseInput (const char *text, FTouchButton &button)
+	{
+		if (!strnicmp(text, "mouse", 5))
+		{
+			button.mouse = atoi(text + 5);
+			return button.mouse >= 1 && button.mouse <= 3;
+		}
+		if (!strnicmp(text, "cmd:", 4))
+		{
+			button.command = text + 4;
+			return true;
+		}
+		if (!strnicmp(text, "hold:", 5))
+		{
+			button.command = text + 5;
+			button.hold = true;
+			return true;
+		}
+		button.key = TouchKeyFromName(text);
+		return button.key >= 0;
+	}
+
+	//--- the editor palette ---------------------------------------------------
+	//
+	// A row of chips that only exists in edit mode: tap one to place a new
+	// button, drag an existing one onto the row to throw it away.
+
+	struct FTouchPaletteEntry
+	{
+		float x = 0, y = 0, w = 0, h = 0;
+		FString input;
+		FString label;
+	};
+
+	TArray<FTouchPaletteEntry> TouchPalette;
+
+	int TouchPaletteAt (float fx, float fy)
+	{
+		for (unsigned i = 0; i < TouchPalette.Size(); i++)
+		{
+			const FTouchPaletteEntry &entry = TouchPalette[i];
+
+			if (fx >= entry.x && fx <= entry.x + entry.w &&
+				fy >= entry.y && fy <= entry.y + entry.h)
+			{
+				return (int)i;
+			}
+		}
+		return -1;
+	}
+
 	// Java keeps one list per layout, so it needs the index within that layout.
 	int TouchButtonLocalIndex (int index)
 	{
@@ -580,6 +632,92 @@ namespace
 		env->DeleteLocalRef(activity);
 #else
 		(void)editing;
+#endif
+	}
+
+	void TouchPushButtonAdded (int localIndex, const FTouchButton &button)
+	{
+#ifdef __ANDROID__
+		JNIEnv *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+		jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+
+		if (env == nullptr || activity == nullptr)
+			return;
+
+		jclass cls = env->GetObjectClass(activity);
+		jmethodID method = env->GetMethodID(cls,
+			"onTouchButtonAdded", "(ZILjava/lang/String;Ljava/lang/String;FFFF)V");
+
+		if (method != nullptr)
+		{
+			// The overlay writes the file, so it gets the input as the file
+			// spells it, plus a label to draw.
+			FString inputText;
+			FString label;
+
+			if (button.command.IsNotEmpty())
+			{
+				inputText.Format("%s%s", button.hold ? "hold:" : "cmd:", button.command.GetChars());
+				label = button.command;
+			}
+			else if (button.mouse > 0)
+			{
+				inputText.Format("mouse%d", button.mouse);
+				label = inputText;
+			}
+			else
+			{
+				const char *name = (button.key >= 0 && button.key < NUM_KEYS) ? KeyNames[button.key] : nullptr;
+				inputText = name != nullptr ? name : "space";
+				label = inputText;
+			}
+
+			jstring input = env->NewStringUTF(inputText.GetChars());
+			jstring labelRef = env->NewStringUTF(label.GetChars());
+
+			env->CallVoidMethod(activity, method, button.ui ? JNI_TRUE : JNI_FALSE, localIndex,
+				input, labelRef, button.x, button.y, button.w, button.h);
+
+			env->DeleteLocalRef(input);
+			env->DeleteLocalRef(labelRef);
+		}
+		if (env->ExceptionCheck())
+		{
+			env->ExceptionClear();
+		}
+
+		env->DeleteLocalRef(cls);
+		env->DeleteLocalRef(activity);
+#else
+		(void)localIndex; (void)button;
+#endif
+	}
+
+	void TouchPushButtonRemoved (bool ui, int localIndex)
+	{
+#ifdef __ANDROID__
+		JNIEnv *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+		jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+
+		if (env == nullptr || activity == nullptr)
+			return;
+
+		jclass cls = env->GetObjectClass(activity);
+		jmethodID method = env->GetMethodID(cls, "onTouchButtonRemoved", "(ZI)V");
+
+		if (method != nullptr)
+		{
+			env->CallVoidMethod(activity, method, ui ? JNI_TRUE : JNI_FALSE, localIndex);
+		}
+		if (env->ExceptionCheck())
+		{
+			env->ExceptionClear();
+		}
+
+		env->DeleteLocalRef(cls);
+		env->DeleteLocalRef(activity);
+#else
+		(void)ui; (void)localIndex;
 #endif
 	}
 
@@ -920,6 +1058,27 @@ namespace
 		// resizes it from the bottom right corner), nothing fires meanwhile.
 		if (TouchEditing)
 		{
+			const int palette = TouchPaletteAt(tf.x, tf.y);
+
+			if (palette >= 0)
+			{
+				// Tap a chip to put a new button in the middle of the screen.
+				FTouchButton button;
+
+				button.ui = TouchUiContext();
+				button.w = 0.11f;
+				button.h = 0.14f;
+				button.x = 0.5f - button.w * 0.5f;
+				button.y = 0.42f - button.h * 0.5f;
+
+				if (TouchParseInput(TouchPalette[palette].input.GetChars(), button))
+				{
+					TouchButtons.Push(button);
+					TouchPushButtonAdded(TouchButtonLocalIndex((int)TouchButtons.Size() - 1), button);
+				}
+				return;
+			}
+
 			if (TouchEditIndex < 0)
 			{
 				const int index = TouchButtonAt(TouchUiContext(), tf.x, tf.y);
@@ -1079,7 +1238,18 @@ namespace
 		{
 			if (TouchEditIndex >= 0 && TouchEditFinger == tf.fingerId)
 			{
+				// Dropped on the palette row: that is the bin.
+				if (TouchPaletteAt(tf.x, tf.y) >= 0)
+				{
+					const bool ui = TouchButtons[TouchEditIndex].ui;
+					const int local = TouchButtonLocalIndex(TouchEditIndex);
+
+					TouchButtons.Delete(TouchEditIndex);
+					TouchPushButtonRemoved(ui, local);
+				}
+
 				TouchEditIndex = -1;
+				TouchEditResizing = false;
 			}
 			return;
 		}
@@ -1217,6 +1387,30 @@ bool UZDroid_HandleEvent (const SDL_Event &sev)
 	return true;
 }
 
+CCMD (uzdroid_palette_reset)
+{
+	TouchPalette.Clear();
+}
+
+// uzdroid_palette_entry <x> <y> <w> <h> <input> <label>
+// The overlay draws the chips; the engine owns the taps on them.
+CCMD (uzdroid_palette_entry)
+{
+	if (argv.argc() < 7)
+		return;
+
+	FTouchPaletteEntry entry;
+
+	entry.x = (float)atof(argv[1]);
+	entry.y = (float)atof(argv[2]);
+	entry.w = (float)atof(argv[3]);
+	entry.h = (float)atof(argv[4]);
+	entry.input = argv[5];
+	entry.label = argv[6];
+
+	TouchPalette.Push(entry);
+}
+
 CCMD (uzdroid_touch_edit)
 {
 	TouchEditing = !TouchEditing;
@@ -1259,34 +1453,10 @@ CCMD (uzdroid_button)
 	// parser as one argument otherwise.
 	input.Substitute("|", ";");
 
-	const char *text = input.GetChars();
-
-	if (!strnicmp(text, "mouse", 5))
+	if (!TouchParseInput(input.GetChars(), button))
 	{
-		button.mouse = atoi(text + 5);
-		if (button.mouse < 1 || button.mouse > 3)
-		{
-			Printf("uzdroid_button: only mouse1..mouse3 are supported\n");
-			return;
-		}
-	}
-	else if (!strnicmp(text, "cmd:", 4))
-	{
-		button.command = text + 4;
-	}
-	else if (!strnicmp(text, "hold:", 5))
-	{
-		button.command = text + 5;
-		button.hold = true;
-	}
-	else
-	{
-		button.key = TouchKeyFromName(text);
-		if (button.key < 0)
-		{
-			Printf("uzdroid_button: unknown input '%s'\n", input.GetChars());
-			return;
-		}
+		Printf("uzdroid_button: unknown input '%s'\n", input.GetChars());
+		return;
 	}
 
 	TouchButtons.Push(button);

@@ -3,6 +3,7 @@ Default touch art ships here and is copied to Documents/UZDroid/Touch/.
   JoyFrame.png       stick background, scaled to 2x the stick radius
   JoyKnob.png        stick thumb, scaled to 0.8x the stick radius
   <label>.png        the image for the button whose label is <label>
+  ButtonPLHD.png     the plate drawn behind every button (ButtonBG.png wins)
 
 Layouts:
   touch-buttons.txt        gameplay buttons + the look/stick areas

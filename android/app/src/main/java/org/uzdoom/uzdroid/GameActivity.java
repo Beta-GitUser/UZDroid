@@ -68,6 +68,17 @@ public class GameActivity extends SDLActivity {
         TouchButtons.setEditing(editing);
     }
 
+    /** A palette chip was tapped and the engine made a button for it. */
+    public void onTouchButtonAdded(boolean ui, int index, String input, String label,
+                                   float x, float y, float w, float h) {
+        TouchButtons.onButtonAdded(ui, index, input, label, x, y, w, h);
+    }
+
+    /** A button was dropped on the palette row, which deletes it. */
+    public void onTouchButtonRemoved(boolean ui, int index) {
+        TouchButtons.onButtonRemoved(ui, index);
+    }
+
     /** A button was dragged or resized while editing. */
     public void onTouchButtonMoved(int index, boolean ui, float x, float y, float w, float h) {
         TouchButtons.moveButton(index, ui, x, y, w, h);

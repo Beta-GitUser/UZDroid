@@ -41,7 +41,9 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.Locale;
 
 public final class TouchButtons {
@@ -59,6 +61,17 @@ public final class TouchButtons {
 
     private static boolean uiContext;
     private static boolean editing;
+    private static File touchDir;
+
+    /**
+     * The editor palette. Labels are drawn, inputs are what a new button gets;
+     * any input the file understands can be listed here.
+     */
+    private static final String[][] PALETTE = {
+            {"Up", "Up"}, {"Dn", "Down"}, {"Lt", "Left"}, {"Rt", "Right"},
+            {"OK", "Enter"}, {"Esc", "Escape"}, {"Jump", "space"},
+            {"Fire", "mouse1"}, {"Alt", "mouse2"}, {"Keys", "cmd:uzdroid_kbup"},
+    };
 
     private TouchButtons() {
     }
@@ -70,6 +83,7 @@ public final class TouchButtons {
         File file;
         List<Spec> specs = new ArrayList<>();
         List<String> lines = new ArrayList<>();
+        Set<Integer> removedLines = new HashSet<>();
 
         Layout(String fileName, boolean ui) {
             this.fileName = fileName;
@@ -126,6 +140,7 @@ public final class TouchButtons {
         }
 
         File dir = new File(EnginePaths.root(activity), DIR);
+        touchDir = dir;
         if (!dir.isDirectory() && !dir.mkdirs() && !dir.isDirectory()) {
             Log.w(TAG, "cannot create " + dir);
         }
@@ -141,6 +156,11 @@ public final class TouchButtons {
         }
 
         layer.setStickImages(load(dir, "JoyFrame"), load(dir, "JoyKnob"));
+
+        // ButtonPLHD is the neutral plate every button sits on; Touch/ButtonBG.png
+        // takes over if it exists, and the per-button image is drawn over it.
+        Bitmap background = load(dir, "ButtonBG");
+        layer.setButtonBackground(background != null ? background : load(dir, "ButtonPLHD"));
         showActive();
 
         publish();
@@ -191,6 +211,23 @@ public final class TouchButtons {
 
         publish(GAME);
         publish(MENU);
+    }
+
+    /** Chips are drawn and hit-tested from the same numbers. */
+    private static float[] paletteRect(int index) {
+        return new float[]{0.02f + index * 0.075f, 0.02f, 0.07f, 0.09f};
+    }
+
+    /** Only in edit mode, and the engine only looks at them then too. */
+    private static void publishPalette() {
+        EngineBridge.run("uzdroid_palette_reset");
+
+        for (int i = 0; i < PALETTE.length; i++) {
+            float[] r = paletteRect(i);
+            EngineBridge.run(String.format(Locale.ROOT,
+                    "uzdroid_palette_entry %.4f %.4f %.4f %.4f %s %s",
+                    r[0], r[1], r[2], r[3], PALETTE[i][1], PALETTE[i][0]));
+        }
     }
 
     private static void publish(Layout layout) {
@@ -261,6 +298,49 @@ public final class TouchButtons {
         }
     }
 
+    /** A chip was tapped: the engine placed a new button, we remember it. */
+    public static void onButtonAdded(boolean ui, int index, String input, String label,
+                                     float x, float y, float w, float h) {
+        Layout layout = ui ? MENU : GAME;
+
+        Spec spec = new Spec();
+        spec.label = label;
+        spec.input = input;
+        spec.x = x;
+        spec.y = y;
+        spec.w = w;
+        spec.h = h;
+        spec.alpha = 0.45f;
+        spec.line = -1;                       // created here, appended on save
+        spec.bitmap = touchDir != null ? load(touchDir, label) : null;
+
+        int at = Math.max(0, Math.min(index, layout.specs.size()));
+        layout.specs.add(at, spec);
+
+        if (layout == active() && layer != null) {
+            layer.post(TouchButtons::showActive);
+        }
+    }
+
+    /** A button was dropped on the palette row: forget it and its line. */
+    public static void onButtonRemoved(boolean ui, int index) {
+        Layout layout = ui ? MENU : GAME;
+
+        if (index < 0 || index >= layout.specs.size()) {
+            return;
+        }
+
+        Spec spec = layout.specs.remove(index);
+
+        if (spec.line >= 0) {
+            layout.removedLines.add(spec.line);
+        }
+
+        if (layout == active() && layer != null) {
+            layer.post(TouchButtons::showActive);
+        }
+    }
+
     /** Drag-to-move mode: the engine handles the fingers, we show the result. */
     public static void setEditing(boolean on) {
         editing = on;
@@ -270,7 +350,9 @@ public final class TouchButtons {
         }
         layer.post(() -> {
             layer.setEditing(on);
-            if (!on) {
+            if (on) {
+                publishPalette();
+            } else {
                 save(active());
             }
         });
@@ -300,6 +382,10 @@ public final class TouchButtons {
         StringBuilder out = new StringBuilder();
 
         for (int index = 0; index < layout.lines.size(); index++) {
+            if (layout.removedLines.contains(index)) {
+                continue;
+            }
+
             Spec spec = specAtLine(layout, index);
 
             if (spec != null) {
@@ -307,6 +393,14 @@ public final class TouchButtons {
                         spec.label, spec.input, spec.x, spec.y, spec.w, spec.h, spec.alpha));
             } else {
                 out.append(layout.lines.get(index)).append('\n');
+            }
+        }
+
+        // Buttons made in the editor have no line of their own yet.
+        for (Spec spec : layout.specs) {
+            if (spec.line < 0) {
+                out.append(String.format(Locale.ROOT, "%s  %s  %.3f  %.3f  %.3f  %.3f  %.2f%n",
+                        spec.label, spec.input, spec.x, spec.y, spec.w, spec.h, spec.alpha));
             }
         }
 
@@ -465,6 +559,7 @@ public final class TouchButtons {
 
         private Bitmap frame;
         private Bitmap knob;
+        private Bitmap plate;
 
         private final Paint imagePaint = new Paint(Paint.FILTER_BITMAP_FLAG);
         private final Paint editPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -482,12 +577,17 @@ public final class TouchButtons {
             imagePaint.setAlpha(200);
         }
 
+        void setButtonBackground(Bitmap plate) {
+            this.plate = plate;
+            setButtons(active().specs);      // existing buttons adopt it
+        }
+
         void setButtons(List<Spec> specs) {
             removeAllViews();
             buttons.clear();
 
             for (Spec spec : specs) {
-                Btn button = new Btn(getContext(), spec);
+                Btn button = new Btn(getContext(), spec, plate);
                 buttons.add(button);
                 addView(button);
             }
@@ -528,6 +628,38 @@ public final class TouchButtons {
                 for (Btn button : buttons) {
                     canvas.drawRect(button.getLeft(), button.getTop(),
                             button.getRight(), button.getBottom(), editPaint);
+                }
+            }
+
+            if (editingOutline) {
+                // The chips the engine hit-tests, drawn from the same numbers.
+                editPaint.setStyle(Paint.Style.FILL);
+                editPaint.setColor(Color.BLACK);
+                editPaint.setAlpha(150);
+                editPaint.setTextAlign(Paint.Align.CENTER);
+                editPaint.setTextSize(getHeight() * 0.022f);
+                editPaint.setFakeBoldText(true);
+
+                for (int i = 0; i < PALETTE.length; i++) {
+                    float[] r = paletteRect(i);
+                    float left = r[0] * getWidth();
+                    float top = r[1] * getHeight();
+                    float right = left + r[2] * getWidth();
+                    float bottom = top + r[3] * getHeight();
+
+                    scratch.set(left, top, right, bottom);
+                    canvas.drawRoundRect(scratch, 10f, 10f, editPaint);
+
+                    editPaint.setStyle(Paint.Style.STROKE);
+                    editPaint.setColor(Color.WHITE);
+                    canvas.drawRoundRect(scratch, 10f, 10f, editPaint);
+                    editPaint.setStyle(Paint.Style.FILL);
+                    editPaint.setColor(Color.BLACK);
+
+                    editPaint.setColor(Color.WHITE);
+                    canvas.drawText(PALETTE[i][0], scratch.centerX(),
+                            scratch.centerY() + getHeight() * 0.008f, editPaint);
+                    editPaint.setColor(Color.BLACK);
                 }
             }
 
@@ -586,6 +718,7 @@ public final class TouchButtons {
      */
     private static final class Btn extends View {
         final Spec spec;
+        private final Bitmap plate;
 
         private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -593,9 +726,10 @@ public final class TouchButtons {
         private final Paint image = new Paint(Paint.FILTER_BITMAP_FLAG);
         private final RectF shape = new RectF();
 
-        Btn(Context context, Spec spec) {
+        Btn(Context context, Spec spec, Bitmap plate) {
             super(context);
             this.spec = spec;
+            this.plate = plate;
 
             setFocusable(false);
             setFocusableInTouchMode(false);
@@ -613,6 +747,31 @@ public final class TouchButtons {
 
         @Override
         protected void onDraw(Canvas canvas) {
+            shape.set(0f, 0f, getWidth(), getHeight());
+
+            // The plate is the same for every button; the button's own image is
+            // a silhouette drawn over it, a little inset so the plate shows.
+            if (plate != null) {
+                image.setAlpha((int) (Math.min(1f, spec.alpha * 2f) * 255));
+                canvas.drawBitmap(plate, null, shape, image);
+
+                if (spec.bitmap != null) {
+                    float inset = Math.min(getWidth(), getHeight()) * 0.12f;
+                    scratchSet(inset);
+                    canvas.drawBitmap(spec.bitmap, null, shape, image);
+                }
+
+                if (spec.pressed) {
+                    fill(spec.alpha * 1.4f);
+                    canvas.drawRoundRect(shape, radius(), radius(), fill);
+                }
+
+                if (spec.bitmap == null) {
+                    drawLabel(canvas);
+                }
+                return;
+            }
+
             if (spec.bitmap != null) {
                 image.setAlpha((int) (Math.min(1f, spec.alpha * 2f) * 255));
                 canvas.drawBitmap(spec.bitmap, null, shape, image);
@@ -632,16 +791,24 @@ public final class TouchButtons {
             canvas.drawRoundRect(shape, radius(), radius(), fill);
             canvas.drawRoundRect(shape, radius(), radius(), stroke);
 
-            text.setTextSize(Math.max(10f, Math.min(shape.height() * 0.34f, shape.width() * 0.42f)));
-            text.setAlpha((int) (Math.min(1f, spec.alpha * 2.5f) * 255));
-
-            float baseline = shape.centerY() - (text.descent() + text.ascent()) * 0.5f;
-            canvas.drawText(spec.label, shape.centerX(), baseline, text);
+            drawLabel(canvas);
 
             if (spec.pressed) {
                 fill(spec.alpha * 1.8f);
                 canvas.drawRoundRect(shape, radius(), radius(), fill);
             }
+        }
+
+        private void scratchSet(float inset) {
+            shape.set(inset, inset, getWidth() - inset, getHeight() - inset);
+        }
+
+        private void drawLabel(Canvas canvas) {
+            text.setTextSize(Math.max(10f, Math.min(shape.height() * 0.34f, shape.width() * 0.42f)));
+            text.setAlpha((int) (Math.min(1f, spec.alpha * 2.5f) * 255));
+
+            float baseline = shape.centerY() - (text.descent() + text.ascent()) * 0.5f;
+            canvas.drawText(spec.label, shape.centerX(), baseline, text);
         }
 
         private float radius() {

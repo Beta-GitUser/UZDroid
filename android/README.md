@@ -54,6 +54,9 @@ wants fire, use and jump under the thumbs, while a menu wants Up/Down/Enter/Esc.
 The engine switches between them with the context, and the editor edits whichever
 one is on screen.
 
+`ButtonPLHD.png` is the plate drawn behind every button, so a button's own image
+can be a plain silhouette; `ButtonBG.png` replaces the plate if you want another.
+
 Defaults ship in the APK (`android/app/src/main/assets/touch/`) and are copied
 into the folder without overwriting anything that already exists, so a drawing
 that was replaced on the device stays replaced. Images are scaled to their
@@ -133,7 +136,12 @@ without reinstalling.
 dragging the body moves it, dragging the bottom right corner resizes it, and
 leaving the mode writes the layout back - only the button lines change, so
 comments and hand edits survive. It edits the layout that is currently on
-screen, so open a menu first to arrange the menu buttons. A button's image is `Touch/<label>.png` - a line starting
+screen, so open a menu first to arrange the menu buttons.
+
+A palette row appears along the top while editing: tapping a chip adds that
+input as a new button in the middle of the screen (move it where you want it),
+and dragging a button onto the row throws it away. New and removed buttons are
+written to the file when the mode is left. A button's image is `Touch/<label>.png` - a line starting
 `fire1` uses `fire1.png`.
 
 The game runs in landscape (the activity asks for `sensorLandscape`), so the
