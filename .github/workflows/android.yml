@@ -191,6 +191,17 @@ jobs:
           SH
           ../.github/scripts/ci-run.sh "$GITHUB_WORKSPACE/javac.log" bash /tmp/javac.sh
 
+      # Same idea as the javac gate: aapt2 catches bad string resources in about
+      # a minute, so a stray apostrophe does not cost a native build.
+      - name: Resource compile check
+        working-directory: android
+        run: |
+          cat > /tmp/aapt.sh <<'SH'
+          set -euo pipefail
+          gradle --no-daemon --console=plain :app:processReleaseResources
+          SH
+          ../.github/scripts/ci-run.sh "$GITHUB_WORKSPACE/aapt.log" bash /tmp/aapt.sh
+
       - name: Decode keystore
         if: env.KEYSTORE_BASE64 != ''
         run: |
