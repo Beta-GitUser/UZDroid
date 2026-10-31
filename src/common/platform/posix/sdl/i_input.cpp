@@ -25,6 +25,7 @@
 #include "sdl_include.h"
 #include <assert.h>
 #include <math.h>
+#include <algorithm>
 #include <ctype.h>
 #include <stdio.h>
 
@@ -458,7 +459,8 @@ namespace
 		const float y = tf.y * Touch.WindowH;
 
 		Touch.Fingers++;
-		Touch.MaxFingers = MAX(Touch.MaxFingers, Touch.Fingers);
+		if (Touch.Fingers > Touch.MaxFingers)
+			Touch.MaxFingers = Touch.Fingers;
 
 		if (Touch.Fingers == 1)
 		{
@@ -521,7 +523,7 @@ namespace
 		}
 		else
 		{
-			const float step = MAX(1.0f, Touch.WindowH * ScrollStepFraction);
+			const float step = std::max(1.0f, Touch.WindowH * ScrollStepFraction);
 
 			Touch.ScrollAccum += y - Touch.ScrollLastY;
 			Touch.ScrollLastY = y;
@@ -1030,7 +1032,7 @@ static void TraceInputEvent(const SDL_Event &sev)
 		slot = 6;
 		if (budget[slot]-- <= 0) return;
 		Printf("IN finger type=%d id=%d x=%.3f y=%.3f\n",
-			sev.type, sev.tfinger.fingerId, sev.tfinger.x, sev.tfinger.y);
+			sev.type, int(sev.tfinger.fingerId), sev.tfinger.x, sev.tfinger.y);
 		return;
 	default:
 		return;
