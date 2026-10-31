@@ -24,6 +24,7 @@
 #include "sdl_include.h"
 #include <cmath>
 #include <ctype.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -34,9 +35,23 @@
 #include "i_input.h"
 #include "keydef.h"
 #include "m_joy.h"
-#include "printf.h"
 #include "tarray.h"
 #include "zstring.h"
+
+/**
+ * Diagnostics from this file cannot use the engine's Printf: I_StartupJoysticks
+ * is called straight from main(), before GameMain() has created the console,
+ * and Printf dereferences it. stderr is redirected into the log file by
+ * i_android_log.cpp, so it ends up in the same place.
+ */
+static void JoyLog(const char *format, ...)
+{
+	va_list args;
+	va_start(args, format);
+	vfprintf(stderr, format, args);
+	va_end(args);
+	fflush(stderr);
+}
 
 static const EAxisCodes ControllerAxisCodes[][2] =
 {
@@ -130,7 +145,7 @@ public:
 	void PrintDeviceInfo()
 	{
 		FString name = GetName();
-		Printf("IN device %d: '%s' %s axes=%d hats=%d\n", DeviceIndex,
+		JoyLog("IN device %d: '%s' %s axes=%d hats=%d\n", DeviceIndex,
 			name.GetChars(), Mapping ? "(gamecontroller)" : "(raw joystick)",
 			NumAxes, NumHats);
 
@@ -140,7 +155,7 @@ public:
 			{
 				int value = SDL_GameControllerGetAxis(Mapping, static_cast<SDL_GameControllerAxis>(i));
 				if (value != 0)
-					Printf("IN device %d: axis %d = %d\n", DeviceIndex, i, value);
+					JoyLog("IN device %d: axis %d = %d\n", DeviceIndex, i, value);
 			}
 		}
 		else if (Device != NULL)
@@ -149,13 +164,13 @@ public:
 			{
 				int value = SDL_JoystickGetAxis(Device, i);
 				if (value != 0)
-					Printf("IN device %d: axis %d = %d\n", DeviceIndex, i, value);
+					JoyLog("IN device %d: axis %d = %d\n", DeviceIndex, i, value);
 			}
 			for (int i = 0; i < NumHats; ++i)
 			{
 				int value = SDL_JoystickGetHat(Device, i);
 				if (value != 0)
-					Printf("IN device %d: hat %d = %d\n", DeviceIndex, i, value);
+					JoyLog("IN device %d: hat %d = %d\n", DeviceIndex, i, value);
 			}
 		}
 	}
@@ -689,7 +704,7 @@ public:
 	void UpdateDeviceList()
 	{
 		Joysticks.DeleteAndClear();
-		Printf("IN SDL reports %d joystick(s), use_joystick=%d\n", SDL_NumJoysticks(), (int)(bool)use_joystick);
+		JoyLog("IN SDL reports %d joystick(s), use_joystick=%d\n", SDL_NumJoysticks(), (int)(bool)use_joystick);
 		for(int i = 0; i < SDL_NumJoysticks(); i++)
 		{
 			SDLInputJoystick *device = new SDLInputJoystick(i);
@@ -703,7 +718,7 @@ public:
 				FString devicename = device->GetName();
 				if (IsSensorDeviceName(devicename))
 				{
-					Printf("IN device %d: '%s' ignored (sensor, not a gamepad)\n", i, devicename.GetChars());
+					JoyLog("IN device %d: '%s' ignored (sensor, not a gamepad)\n", i, devicename.GetChars());
 					delete device;
 					continue;
 				}

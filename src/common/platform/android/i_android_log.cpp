@@ -130,28 +130,42 @@ namespace
 		CrashWrite(buffer);
 	}
 
+	struct BacktraceState
+	{
+		int Depth;
+	};
+
 	_Unwind_Reason_Code CrashBacktraceFrame(_Unwind_Context* context, void* arg)
 	{
-		const int* depth = static_cast<const int*>(arg);
-		if (*depth >= 24)
+		BacktraceState* state = static_cast<BacktraceState*>(arg);
+		if (state->Depth >= 24)
 			return _URC_END_OF_STACK;
 
 		uintptr_t ip = static_cast<uintptr_t>(_Unwind_GetIP(context));
 		if (ip == 0)
 			return _URC_END_OF_STACK;
 
-		char buffer[160];
+		char buffer[512];
+		const int depth = state->Depth++;
 
 		Dl_info info;
 		if (dladdr(reinterpret_cast<void*>(ip), &info) != 0 && info.dli_fname != nullptr)
 		{
 			const char* name = info.dli_sname != nullptr ? info.dli_sname : "?";
-			snprintf(buffer, sizeof buffer, "  #%d %s + 0x%lx (%s)\n", *depth++, info.dli_fname,
+			snprintf(buffer, sizeof buffer, "  #%d %s + 0x%lx (%s)\n", depth, info.dli_fname,
 				(unsigned long)(ip - reinterpret_cast<uintptr_t>(info.dli_fbase)), name);
 		}
 		else
 		{
-			snprintf(buffer, sizeof buffer, "  #%d 0x%lx\n", *depth++, (unsigned long)ip);
+			snprintf(buffer, sizeof buffer, "  #%d 0x%lx\n", depth, (unsigned long)ip);
+		}
+
+		// snprintf truncates instead of overflowing, so make sure the line ends.
+		const size_t length = strlen(buffer);
+		if (length > 0 && buffer[length - 1] != '\n')
+		{
+			buffer[length > sizeof buffer - 2 ? sizeof buffer - 2 : length] = '\n';
+			buffer[length > sizeof buffer - 2 ? sizeof buffer - 1 : length + 1] = '\0';
 		}
 
 		CrashWrite(buffer);
@@ -178,8 +192,9 @@ namespace
 			CrashWriteHex("fault address ", reinterpret_cast<uintptr_t>(info->si_addr));
 
 		CrashWrite("backtrace:\n");
-		int depth = 0;
-		_Unwind_Backtrace(CrashBacktraceFrame, &depth);
+		BacktraceState state;
+		state.Depth = 0;
+		_Unwind_Backtrace(CrashBacktraceFrame, &state);
 		CrashWrite("*** end of crash report ***\n");
 
 		if (CrashFd >= 0)
